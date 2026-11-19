@@ -67,7 +67,8 @@ fun ReflectionPromptCard(
                     ) {
                         Surface(
                             color = tintColor.copy(alpha = 0.1f),
-                            shape = RoundedCornerShape(8.dp)
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.weight(1f, fill = false)
                         ) {
                             Text(
                                 text = currentPrompt?.category?.displayName?.uppercase() ?: "REFLECTING",
@@ -77,11 +78,13 @@ fun ReflectionPromptCard(
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                             )
                         }
+
+                        Spacer(modifier = Modifier.width(8.dp))
                         
                         IconButton(
                             onClick = onRefresh,
                             enabled = !loading,
-                            modifier = Modifier.size(24.dp)
+                            modifier = Modifier.size(48.dp)
                         ) {
                             Icon(
                                 Icons.Rounded.Refresh,
@@ -111,7 +114,8 @@ fun ReflectionPromptCard(
                         colors = ButtonDefaults.buttonColors(
                             containerColor = tintColor,
                             contentColor = if (safetyLevel == SafetyLevel.LOW) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onTertiary
-                        )
+                        ),
+                        modifier = Modifier.defaultMinSize(minHeight = 48.dp)
                     ) {
                         Icon(
                             Icons.Rounded.AutoAwesome,

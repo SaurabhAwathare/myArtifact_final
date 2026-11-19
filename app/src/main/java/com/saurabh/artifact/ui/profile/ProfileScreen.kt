@@ -12,6 +12,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -34,7 +35,7 @@ fun ProfileScreen(
     onNavigateToReview: (String) -> Unit,
     onNavigateToPublish: (String) -> Unit = {},
     onNavigateToResonanceList: (String, String, String) -> Unit = { _, _, _ -> },
-    onNavigateToArtifactResonators: (String, Boolean) -> Unit = { _, _ -> },
+    onNavigateToArtifactResonators: ((String, Boolean) -> Unit)? = null,
     viewModel: ProfileViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -183,9 +184,11 @@ fun ProfileScreen(
                                     unselectedContentColor = ArtifactTheme.colors.onSurfaceMuted,
                                     text = { 
                                         Text(
-                                            tab.title,
+                                            text = tab.title,
                                             style = MaterialTheme.typography.titleSmall,
                                             fontWeight = if (uiState.selectedTab == tab) FontWeight.Bold else FontWeight.Normal,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
                                             modifier = Modifier.padding(vertical = Spacing.Small)
                                         ) 
                                     }
@@ -228,8 +231,10 @@ fun ProfileScreen(
                                     },
                                     onSaveClick = { viewModel.toggleSave(it) },
                                     emptyMessage = if (uiState.isSelf) "You haven't shared any reflections yet." else "This journey is just beginning.",
-                                    onResonatorsCountClick = { artifact ->
-                                        onNavigateToArtifactResonators(artifact.id, artifact.userId == viewModel.currentUserId || uiState.isSelf)
+                                    onResonatorsCountClick = onNavigateToArtifactResonators?.let { cb ->
+                                        { artifact ->
+                                            cb(artifact.id, artifact.userId == viewModel.currentUserId || uiState.isSelf)
+                                        }
                                     },
                                     onLoadMore = { viewModel.loadMorePublished() },
                                     isLoadingMore = uiState.isMorePublishedLoading,
@@ -271,9 +276,6 @@ fun ProfileScreen(
                                         },
                                         onDelete = { artifact -> 
                                             viewModel.deletePublishedArtifact(artifact.id)
-                                        },
-                                        onResonatorsCountClick = { artifact ->
-                                            onNavigateToArtifactResonators(artifact.id, true)
                                         }
                                     )
                                 }
@@ -318,8 +320,10 @@ fun ProfileScreen(
                                 },
                                 onSaveClick = { viewModel.toggleSave(it) },
                                 emptyMessage = "Moments that resonate with you will stay here.",
-                                onResonatorsCountClick = { artifact ->
-                                    onNavigateToArtifactResonators(artifact.id, artifact.userId == viewModel.currentUserId || uiState.isSelf)
+                                onResonatorsCountClick = onNavigateToArtifactResonators?.let { cb ->
+                                    { artifact ->
+                                        cb(artifact.id, artifact.userId == viewModel.currentUserId || uiState.isSelf)
+                                    }
                                 }
                             )
                         }

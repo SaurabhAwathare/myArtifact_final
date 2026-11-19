@@ -25,6 +25,8 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -106,7 +108,7 @@ fun FeedScreen(
     onNavigateToDebugMenu: () -> Unit,
     onReportArtifact: (String) -> Unit,
     onAuthorClick: (String) -> Unit = {},
-    onResonatorsCountClick: (String) -> Unit = {},
+    onResonatorsCountClick: ((String) -> Unit)? = null,
     onNavigateToSecurity: () -> Unit = {},
     recordingStatus: RecordingStatus = RecordingStatus.IDLE,
     viewModel: FeedViewModel = hiltViewModel(),
@@ -256,7 +258,7 @@ fun FeedScreen(
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
-private fun FeedTopBar(
+internal fun FeedTopBar(
     viewModel: FeedViewModel,
     onNavigateToNotifications: () -> Unit,
     onNavigateToProfile: () -> Unit,
@@ -305,7 +307,12 @@ private fun FeedTopBar(
                     )
                 }
             }
-            IconButton(onClick = onNavigateToProfile) {
+            IconButton(
+                onClick = onNavigateToProfile,
+                modifier = Modifier.semantics {
+                    contentDescription = "Inner Space"
+                }
+            ) {
                 if (currentUser != null) {
                     ArtifactSigil(
                         config = currentUser.sigilConfig,
@@ -313,7 +320,7 @@ private fun FeedTopBar(
                         isStatic = true
                     )
                 } else {
-                    Icon(Icons.Rounded.Person, contentDescription = "Inner Space")
+                    Icon(Icons.Rounded.Person, contentDescription = null)
                 }
             }
         },
@@ -388,7 +395,7 @@ internal fun FeedContent(
     onAuthorClick: (String) -> Unit,
     onNavigateToSecurity: () -> Unit,
     modifier: Modifier = Modifier,
-    onResonatorsCountClick: (String) -> Unit = {},
+    onResonatorsCountClick: ((String) -> Unit)? = null,
     selectedEmotion: String? = null,
     committedEmotion: String? = null,
     recordingStatus: RecordingStatus = RecordingStatus.IDLE
@@ -566,7 +573,7 @@ fun ArtifactItem(
     onReportClick: (String) -> Unit,
     onAuthorClick: (String) -> Unit,
     modifier: Modifier = Modifier,
-    onResonatorsCountClick: (String) -> Unit = {},
+    onResonatorsCountClick: ((String) -> Unit)? = null,
     feedArtifact: FeedArtifact? = null
 ) {
     // Isolated State Collection: This item ONLY recomposes when its specific artifact data or status changes
@@ -696,7 +703,7 @@ private fun NewContentOverlay(
 }
 
 @Composable
-private fun NewContentIndicator(
+internal fun NewContentIndicator(
     onClick: () -> Unit
 ) {
     Surface(
@@ -706,10 +713,10 @@ private fun NewContentIndicator(
         contentColor = Color.White,
         tonalElevation = 4.dp,
         shadowElevation = 6.dp,
-        modifier = Modifier.height(40.dp)
+        modifier = Modifier.defaultMinSize(minHeight = 48.dp)
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 16.dp),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {

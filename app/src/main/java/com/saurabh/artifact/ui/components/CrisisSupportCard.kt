@@ -40,7 +40,7 @@ fun CrisisSupportCard(
                     color = MaterialTheme.colorScheme.onErrorContainer
                 )
                 
-                IconButton(onClick = onContinue, modifier = Modifier.size(24.dp)) {
+                IconButton(onClick = onContinue, modifier = Modifier.size(48.dp)) {
                     Icon(
                         Icons.Rounded.Close,
                         contentDescription = "Dismiss",
@@ -61,27 +61,72 @@ fun CrisisSupportCard(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = onCallHelp,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error,
-                        contentColor = MaterialTheme.colorScheme.onError
-                    ),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Icon(Icons.Rounded.Call, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Talk to someone now")
-                }
-                
-                TextButton(
-                    onClick = onContinue,
-                    colors = ButtonDefaults.textButtonColors(
-                        contentColor = MaterialTheme.colorScheme.onErrorContainer
-                    )
-                ) {
-                    Text(stringResource(R.string.action_return_to_reflection))
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                val isStacked = maxWidth < 420.dp
+
+                if (isStacked) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = onCallHelp,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.error,
+                                contentColor = MaterialTheme.colorScheme.onError
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .defaultMinSize(minHeight = 48.dp)
+                        ) {
+                            Icon(Icons.Rounded.Call, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Talk to someone now")
+                        }
+
+                        TextButton(
+                            onClick = onContinue,
+                            colors = ButtonDefaults.textButtonColors(
+                                contentColor = MaterialTheme.colorScheme.onErrorContainer
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .defaultMinSize(minHeight = 48.dp)
+                        ) {
+                            Text(stringResource(R.string.action_return_to_reflection))
+                        }
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Button(
+                            onClick = onCallHelp,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.error,
+                                contentColor = MaterialTheme.colorScheme.onError
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.defaultMinSize(minHeight = 48.dp)
+                        ) {
+                            Icon(Icons.Rounded.Call, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Talk to someone now")
+                        }
+
+                        TextButton(
+                            onClick = onContinue,
+                            colors = ButtonDefaults.textButtonColors(
+                                contentColor = MaterialTheme.colorScheme.onErrorContainer
+                            ),
+                            modifier = Modifier.defaultMinSize(minHeight = 48.dp)
+                        ) {
+                            Text(stringResource(R.string.action_return_to_reflection))
+                        }
+                    }
                 }
             }
         }

@@ -10,6 +10,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -55,11 +58,26 @@ fun ProfileHeader(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Start
         ) {
+            val isSigilEditable = isSelf && !isLoading && user != null
             // Sigil (Compact size 64.dp, minimum 48dp touch target satisfied)
             Box(
                 modifier = Modifier
                     .size(64.dp)
-                    .clickable(enabled = isSelf && !isLoading && user != null) { onEditClick() },
+                    .then(
+                        if (isSigilEditable) {
+                            Modifier
+                                .semantics {
+                                    contentDescription = "Edit identity"
+                                }
+                                .clickable(
+                                    role = Role.Button,
+                                    onClickLabel = "Edit identity",
+                                    onClick = onEditClick
+                                )
+                        } else {
+                            Modifier
+                        }
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 if (isLoading || user == null) {
@@ -196,7 +214,8 @@ fun ProfileHeader(
 
                 StatItem(
                     label = "artifacts",
-                    displayValue = (user?.artifactsCount ?: 0L).toString()
+                    displayValue = (user?.artifactsCount ?: 0L).toString(),
+                    onClick = null
                 )
                 StatItem(
                     label = "following", 
@@ -219,14 +238,24 @@ fun ProfileHeader(
 private fun StatItem(
     label: String,
     displayValue: String,
-    enabled: Boolean = true,
-    onClick: () -> Unit = {}
+    onClick: (() -> Unit)? = null,
+    enabled: Boolean = (onClick != null)
 ) {
+    val isInteractive = enabled && onClick != null
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
             .defaultMinSize(minWidth = 64.dp, minHeight = 48.dp)
-            .clickable(enabled = enabled) { onClick() }
+            .then(
+                if (isInteractive) {
+                    Modifier.clickable(
+                        role = Role.Button,
+                        onClick = onClick
+                    )
+                } else {
+                    Modifier
+                }
+            )
             .padding(horizontal = Spacing.Small, vertical = Spacing.ExtraSmall),
         verticalArrangement = Arrangement.Center
     ) {

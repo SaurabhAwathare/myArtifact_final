@@ -87,6 +87,7 @@ fun DraftStorageWarningBanner(
             modifier = Modifier.padding(Spacing.Large)
         ) {
             Row(
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Start
             ) {
@@ -100,7 +101,8 @@ fun DraftStorageWarningBanner(
                 Text(
                     text = "Your drafts are stored on this device",
                     style = ArtifactTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-                    color = ArtifactTheme.colors.onSurfaceMain
+                    color = ArtifactTheme.colors.onSurfaceMain,
+                    modifier = Modifier.weight(1f)
                 )
             }
 

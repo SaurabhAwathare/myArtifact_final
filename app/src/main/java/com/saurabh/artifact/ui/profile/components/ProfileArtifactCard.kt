@@ -6,6 +6,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -91,7 +92,7 @@ fun ProfileArtifactCard(
     progress: Float = 0f,
     isListened: Boolean = false,
     reviewProgress: Float = 0f,
-    onResonatorsCountClick: () -> Unit = {},
+    onResonatorsCountClick: (() -> Unit)? = null,
 ) {
     var showMenu by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
@@ -186,7 +187,9 @@ fun ProfileArtifactCard(
                         if (!isOwner && !isDraft && artifact.author.name.isNotBlank()) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(bottom = 6.dp)
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 6.dp)
                             ) {
                                 ArtifactSigil(
                                     config = artifact.author.sigilConfig,
@@ -196,6 +199,7 @@ fun ProfileArtifactCard(
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
                                     text = artifact.author.name,
+                                    modifier = Modifier.weight(1f, fill = false),
                                     style = ArtifactTheme.typography.titleSmall.copy(
                                         fontSize = 14.sp
                                     ),
@@ -208,7 +212,8 @@ fun ProfileArtifactCard(
                                         text = " · ${artifact.author.sigil}",
                                         style = ArtifactTheme.typography.labelSmall,
                                         color = ArtifactTheme.colors.onSurfaceMuted,
-                                        maxLines = 1
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
                             }
@@ -318,14 +323,15 @@ fun ProfileArtifactCard(
                 }
 
                 // Bottom Row: Emotion Tag (Bottom-Left) & Contextual Metadata (Bottom-Right)
+                // Responsive flow arrangement: prevents horizontal overflow on compact screens & enlarged font scales
                 val showBottomRow = displayEmotionWithEmoji.isNotEmpty() || isDraft || artifact.reactionCount > 0
                 if (showBottomRow) {
                     Spacer(modifier = Modifier.height(Spacing.Medium))
 
-                    Row(
+                    FlowRow(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalArrangement = Arrangement.spacedBy(Spacing.Small)
                     ) {
                         // Bottom-Left: Emotion Tag Chip
                         if (displayEmotionWithEmoji.isNotEmpty()) {
@@ -347,7 +353,8 @@ fun ProfileArtifactCard(
                                     text = displayEmotionWithEmoji,
                                     style = ArtifactTheme.typography.labelSmall,
                                     color = ArtifactTheme.colors.onSurfaceAura,
-                                    maxLines = 1
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         } else {
@@ -356,7 +363,10 @@ fun ProfileArtifactCard(
 
                         // Bottom-Right: Contextual Information (Draft Status or Reaction Counts)
                         if (isDraft) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(vertical = 2.dp)
+                            ) {
                                 Box(
                                     modifier = Modifier
                                         .size(6.dp)
@@ -367,26 +377,21 @@ fun ProfileArtifactCard(
                                 Text(
                                     text = if (isListened) "Ready to publish" else "Review to publish (${(reviewProgress * 100).toInt()}%)",
                                     style = ArtifactTheme.typography.labelMedium,
-                                    color = ArtifactTheme.colors.onSurfaceMuted
+                                    color = ArtifactTheme.colors.onSurfaceMuted,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
-                        } else {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(Spacing.Large)
-                            ) {
-                                if (artifact.reactionCount > 0) {
-                                    ResonanceDisplay(
-                                        counts = ArtifactReactionCounts(
-                                            artifactId = artifact.id,
-                                            totalCount = artifact.reactionCount,
-                                            visibility = artifact.reactionVisibility
-                                        ),
-                                        isOwner = isOwner,
-                                        onClick = onResonatorsCountClick
-                                    )
-                                }
-                            }
+                        } else if (artifact.reactionCount > 0) {
+                            ResonanceDisplay(
+                                counts = ArtifactReactionCounts(
+                                    artifactId = artifact.id,
+                                    totalCount = artifact.reactionCount,
+                                    visibility = artifact.reactionVisibility
+                                ),
+                                isOwner = isOwner,
+                                onClick = onResonatorsCountClick
+                            )
                         }
                     }
                 }

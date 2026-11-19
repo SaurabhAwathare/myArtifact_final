@@ -22,17 +22,22 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -324,249 +329,506 @@ fun RecordingScreen(
     Scaffold(
         containerColor = Obsidian950
     ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            Color(0xFF1A0808).copy(alpha = glowAlpha),
-                            Color(0xFF120909)
-                        )
+        RecordingScreenContent(
+            uiState = uiState,
+            innerPadding = innerPadding,
+            glowAlpha = glowAlpha,
+            onNextPrompt = { viewModel.nextPrompt() },
+            onPrimaryActionClick = { currentRequestPermission() },
+            onPauseClick = { viewModel.pauseRecording() },
+            onResumeClick = { viewModel.resumeRecording() },
+            onDeleteClick = { showDeleteConfirmation = true },
+            onFinishClick = { viewModel.stopRecording() },
+            onRetryClick = {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                viewModel.startRecording()
+            },
+            onExitClick = safeOnBack
+        )
+    }
+}
+
+@Composable
+fun RecordingScreenContent(
+    uiState: RecordingUiState,
+    innerPadding: PaddingValues = PaddingValues(0.dp),
+    glowAlpha: Float = 0.1f,
+    onNextPrompt: () -> Unit = {},
+    onPrimaryActionClick: () -> Unit = {},
+    onPauseClick: () -> Unit = {},
+    onResumeClick: () -> Unit = onPauseClick,
+    onDeleteClick: () -> Unit = {},
+    onFinishClick: () -> Unit = {},
+    onRetryClick: () -> Unit = onPrimaryActionClick,
+    onExitClick: () -> Unit = {}
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        Color(0xFF1A0808).copy(alpha = glowAlpha),
+                        Color(0xFF120909)
                     )
                 )
+            )
+    ) {
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
         ) {
-            // TOP-LEFT EPISODE HEADER
-            val displayEpisode = uiState.episodeNumber ?: uiState.nextEpisodeNumberPreview
-            if (displayEpisode != null) {
-                Surface(
-                    color = Color.Black.copy(alpha = 0.6f),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(innerPadding)
-                        .padding(top = 16.dp, start = 24.dp)
-                ) {
-                    Text(
-                        text = "Artifact · Episode $displayEpisode",
-                        style = MaterialTheme.typography.labelLarge.copy(
-                            fontWeight = FontWeight.Normal,
-                            letterSpacing = 1.2.sp
-                        ),
-                        color = GoldAura500,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                    )
-                }
+            val screenWidth = maxWidth
+            val screenHeight = maxHeight
+
+            val isLandscape = screenWidth > screenHeight && screenHeight < 500.dp
+            val isCompactWidth = screenWidth < 360.dp
+            val isMediumWidth = screenWidth in 360.dp..400.dp
+
+            val isShortHeight = screenHeight < 600.dp
+            val isMediumHeight = screenHeight in 600.dp..750.dp
+
+            // Adaptive layout tokens
+            val headerHorizontalPadding = when {
+                isCompactWidth -> 16.dp
+                isMediumWidth -> 20.dp
+                else -> 24.dp
+            }
+            val headerTopPadding = when {
+                isShortHeight -> 10.dp
+                isMediumHeight -> 12.dp
+                else -> 16.dp
+            }
+            val headerBottomPadding = when {
+                isShortHeight -> 4.dp
+                else -> 8.dp
             }
 
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding)
-            ) {
-                // TOP HALF - PROMPT SECTION
-                Box(
-                    modifier = Modifier
-                        .weight(1.2f)
-                        .fillMaxWidth(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    AnimatedContent(
-                        targetState = uiState.currentPrompt,
-                        transitionSpec = {
-                            fadeIn(animationSpec = tween(500)) togetherWith
-                            fadeOut(animationSpec = tween(500))
-                        },
-                        label = "PromptSwitch"
-                    ) { prompt ->
-                        if (prompt != null) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 48.dp),
-                                horizontalAlignment = Alignment.Start,
-                                verticalArrangement = Arrangement.Center
-                            ) {
-                                // CATEGORY LABEL
-                                Text(
-                                    text = prompt.category.displayLabel,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = GoldAura500.copy(alpha = 0.7f),
-                                    letterSpacing = 2.sp
-                                )
-                                
-                                Spacer(modifier = Modifier.height(16.dp))
+            val promptHorizontalPadding = when {
+                isCompactWidth -> 20.dp
+                isMediumWidth -> 28.dp
+                else -> 40.dp
+            }
+            val promptFontSize = when {
+                isShortHeight || isCompactWidth -> 24.sp
+                isMediumHeight -> 28.sp
+                else -> 32.sp
+            }
+            val promptLineHeight = when {
+                isShortHeight || isCompactWidth -> 32.sp
+                isMediumHeight -> 38.sp
+                else -> 44.sp
+            }
+            val promptSpacerSmall = when {
+                isShortHeight -> 8.dp
+                isMediumHeight -> 12.dp
+                else -> 16.dp
+            }
+            val promptSpacerMedium = when {
+                isShortHeight -> 14.dp
+                isMediumHeight -> 22.dp
+                else -> 28.dp
+            }
+            val subtitleStyle = if (isShortHeight || isCompactWidth) {
+                MaterialTheme.typography.bodyMedium.copy(fontSize = 13.sp)
+            } else {
+                MaterialTheme.typography.bodyLarge
+            }
 
-                                Text(
-                                    text = prompt.question,
-                                    style = MaterialTheme.typography.displayMedium.copy(
-                                        fontWeight = FontWeight.Light,
-                                        fontSize = 32.sp
-                                    ),
-                                    color = Color.White,
-                                    textAlign = TextAlign.Start,
-                                    lineHeight = 44.sp
-                                )
-                                
-                                Spacer(modifier = Modifier.height(32.dp))
+            val adaptiveWaveformHeight = when {
+                isShortHeight -> 52.dp
+                isMediumHeight -> 68.dp
+                else -> 80.dp
+            }
+            val waveformHorizontalPadding = when {
+                isCompactWidth -> 16.dp
+                else -> 24.dp
+            }
+            val waveformToTimerSpacer = when {
+                isShortHeight -> 6.dp
+                isMediumHeight -> 10.dp
+                else -> 16.dp
+            }
 
-                                // ACTION LINK: Try Another Prompt
-                                if (!uiState.isPromptLoading) {
-                                    TextButton(
-                                        onClick = { viewModel.nextPrompt() },
-                                        colors = ButtonDefaults.textButtonColors(
-                                            contentColor = Color(0xFFFFB74D).copy(alpha = 0.6f) // Warm amber
-                                        ),
-                                        contentPadding = PaddingValues(0.dp)
-                                    ) {
-                                        Text(
-                                            text = "Try Another Prompt →",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontWeight = FontWeight.Light
-                                        )
-                                    }
-                                } else {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(24.dp),
-                                        color = GoldAura500.copy(alpha = 0.4f),
-                                        strokeWidth = 2.dp
-                                    )
-                                }
+            val timerFontSize = when {
+                isShortHeight -> 28.sp
+                isMediumHeight -> 32.sp
+                else -> 36.sp
+            }
+            val timerLetterSpacing = when {
+                isShortHeight -> 2.sp
+                else -> 4.sp
+            }
+            val timerToControlsSpacer = when {
+                isShortHeight -> 10.dp
+                isMediumHeight -> 18.dp
+                else -> 32.dp
+            }
+            val bottomSectionPadding = when {
+                isShortHeight -> 12.dp
+                isMediumHeight -> 20.dp
+                else -> 40.dp
+            }
 
-                                Spacer(modifier = Modifier.height(16.dp))
+            val isCompactControls = isShortHeight || isCompactWidth
 
-                                Text(
-                                    text = "There’s no pressure to sound perfect.",
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    color = Color.White.copy(alpha = 0.4f),
-                                    textAlign = TextAlign.Start
-                                )
-                            }
-                        } else {
-                            CircularProgressIndicator(color = GoldAura500.copy(alpha = 0.2f))
-                        }
-                    }
-                }
+            val displayEpisode = uiState.episodeNumber ?: uiState.nextEpisodeNumberPreview
 
-                // BOTTOM HALF - RECORDING EXPERIENCE
+            if (!isLandscape) {
+                // =========================================================================
+                // PORTRAIT LAYOUT: Integrated Header, Flexible Prompt, Pinned Controls
+                // =========================================================================
                 Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .padding(bottom = 64.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.SpaceBetween
                 ) {
-                    // Live Waveform
-                    AmbientWaveform(
-                        amplitudes = uiState.amplitudes,
-                        liveAmplitude = uiState.currentAmplitude,
-                        progress = 0f, // Not used in SCROLL mode
-                        isPaused = (uiState.status == RecordingStatus.PAUSED),
-                        samplingMode = com.saurabh.artifact.util.WaveformProcessor.SamplingMode.SCROLL,
-                        context = WaveformContext.Recording,
+                    // TOP: EPISODE HEADER (Integrated into vertical hierarchy — eliminates REC-1 overlap)
+                    if (displayEpisode != null) {
+                        Surface(
+                            color = Color.Black.copy(alpha = 0.6f),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier
+                                .padding(
+                                    start = headerHorizontalPadding,
+                                    top = headerTopPadding,
+                                    bottom = headerBottomPadding
+                                )
+                        ) {
+                            Text(
+                                text = "Artifact · Episode $displayEpisode",
+                                style = MaterialTheme.typography.labelLarge.copy(
+                                    fontWeight = FontWeight.Normal,
+                                    letterSpacing = 1.2.sp
+                                ),
+                                color = GoldAura500,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+
+                    // MIDDLE: PROMPT SECTION (Flexible weight, adaptive typography & margins, scrollable fallback)
+                    Box(
                         modifier = Modifier
                             .weight(1f)
-                            .fillMaxWidth()
-                            .padding(horizontal = 24.dp)
-                    )
+                            .fillMaxWidth(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        AnimatedContent(
+                            targetState = uiState.currentPrompt,
+                            transitionSpec = {
+                                fadeIn(animationSpec = tween(500)) togetherWith
+                                fadeOut(animationSpec = tween(500))
+                            },
+                            label = "PromptSwitch"
+                        ) { prompt ->
+                            if (prompt != null) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = promptHorizontalPadding)
+                                        .verticalScroll(rememberScrollState()),
+                                    horizontalAlignment = Alignment.Start,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    // CATEGORY LABEL
+                                    Text(
+                                        text = prompt.category.displayLabel,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = GoldAura500.copy(alpha = 0.7f),
+                                        letterSpacing = 2.sp
+                                    )
 
-                    // Live Timer
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Spacer(modifier = Modifier.height(promptSpacerSmall))
+
+                                    // REFLECTION QUESTION
+                                    Text(
+                                        text = prompt.question,
+                                        style = MaterialTheme.typography.displayMedium.copy(
+                                            fontWeight = FontWeight.Light,
+                                            fontSize = promptFontSize
+                                        ),
+                                        color = Color.White,
+                                        textAlign = TextAlign.Start,
+                                        lineHeight = promptLineHeight
+                                    )
+
+                                    Spacer(modifier = Modifier.height(promptSpacerMedium))
+
+                                    // ACTION LINK: Try Another Prompt
+                                    if (!uiState.isPromptLoading) {
+                                        TextButton(
+                                            onClick = onNextPrompt,
+                                            colors = ButtonDefaults.textButtonColors(
+                                                contentColor = Color(0xFFFFB74D).copy(alpha = 0.6f)
+                                            ),
+                                            contentPadding = PaddingValues(0.dp)
+                                        ) {
+                                            Text(
+                                                text = "Try Another Prompt →",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.Light
+                                            )
+                                        }
+                                    } else {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(24.dp),
+                                            color = GoldAura500.copy(alpha = 0.4f),
+                                            strokeWidth = 2.dp
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.height(promptSpacerSmall))
+
+                                    Text(
+                                        text = "There’s no pressure to sound perfect.",
+                                        style = subtitleStyle,
+                                        color = Color.White.copy(alpha = 0.4f),
+                                        textAlign = TextAlign.Start
+                                    )
+                                }
+                            } else {
+                                CircularProgressIndicator(color = GoldAura500.copy(alpha = 0.2f))
+                            }
+                        }
+                    }
+
+                    // BOTTOM: RECORDING EXPERIENCE (Fixed to natural content height, remains accessible)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = bottomSectionPadding),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        // Live Waveform (Resolves REC-4: explicit adaptive height, no conflicting weight)
+                        AmbientWaveform(
+                            amplitudes = uiState.amplitudes,
+                            liveAmplitude = uiState.currentAmplitude,
+                            progress = 0f,
+                            isPaused = (uiState.status == RecordingStatus.PAUSED),
+                            samplingMode = com.saurabh.artifact.util.WaveformProcessor.SamplingMode.SCROLL,
+                            context = WaveformContext.Recording,
+                            waveformHeight = adaptiveWaveformHeight,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = waveformHorizontalPadding)
+                        )
+
+                        Spacer(modifier = Modifier.height(waveformToTimerSpacer))
+
+                        // Live Timer
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            val timerDescription = buildString {
+                                append("Recording duration: ")
+                                val mins = uiState.durationSeconds / 60
+                                val secs = uiState.durationSeconds % 60
+                                if (mins > 0) {
+                                    append("$mins ${if (mins == 1L) "minute" else "minutes"} ")
+                                }
+                                append("$secs ${if (secs == 1L) "second" else "seconds"}")
+                            }
+                            Text(
+                                text = TimeUtils.formatDuration(uiState.durationSeconds, LocalConfiguration.current),
+                                style = MaterialTheme.typography.displaySmall.copy(
+                                    fontWeight = FontWeight.ExtraLight,
+                                    fontSize = timerFontSize,
+                                    letterSpacing = timerLetterSpacing
+                                ),
+                                color = Color.White.copy(alpha = 0.9f),
+                                modifier = Modifier.semantics {
+                                    contentDescription = timerDescription
+                                }
+                            )
+
+                            if (uiState.isStorageLow && uiState.error == null) {
+                                Text(
+                                    text = "Low storage space",
+                                    color = Color(0xFFFFB74D),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.padding(top = 4.dp)
+                                )
+                            }
+
+                            uiState.error?.let { error ->
+                                val errorMessage = when (error) {
+                                    is RecordingError.PermissionDenied -> "Permission Denied"
+                                    is RecordingError.HardwareInUse -> "Microphone in use by another app"
+                                    is RecordingError.StorageFull -> "Storage is full"
+                                    is RecordingError.ReservationFailed -> "Network connection required to assign Episode Number before recording"
+                                    is RecordingError.Unknown -> "Recording failed"
+                                }
+
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    modifier = Modifier.padding(top = 8.dp)
+                                ) {
+                                    Text(
+                                        text = errorMessage,
+                                        color = Color(0xFFE91E63),
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                        TextButton(
+                                            onClick = onRetryClick,
+                                            colors = ButtonDefaults.textButtonColors(contentColor = Color.White.copy(alpha = 0.6f))
+                                        ) {
+                                            Text("Retry")
+                                        }
+
+                                        TextButton(
+                                            onClick = onExitClick,
+                                            colors = ButtonDefaults.textButtonColors(contentColor = Color.White.copy(alpha = 0.4f))
+                                        ) {
+                                            Text("Exit")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(timerToControlsSpacer))
+
+                        // Cinematic Recording Controls (Resolves REC-3)
+                        EnhancedRecordingControls(
+                            status = uiState.status,
+                            compact = isCompactControls,
+                            onPrimaryActionClick = onPrimaryActionClick,
+                            onPauseClick = onPauseClick,
+                            onResumeClick = onResumeClick,
+                            onDeleteClick = onDeleteClick,
+                            onFinishClick = onFinishClick
+                        )
+                    }
+                }
+            } else {
+                // =========================================================================
+                // LANDSCAPE LAYOUT: Side-by-Side Prompt & Recording Controls
+                // =========================================================================
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // LEFT COLUMN: Header + Prompt
+                    Column(
+                        modifier = Modifier
+                            .weight(1.1f)
+                            .fillMaxHeight()
+                            .verticalScroll(rememberScrollState())
+                            .padding(end = 12.dp),
+                        horizontalAlignment = Alignment.Start,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        if (displayEpisode != null) {
+                            Surface(
+                                color = Color.Black.copy(alpha = 0.6f),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.padding(bottom = 6.dp)
+                            ) {
+                                Text(
+                                    text = "Artifact · Episode $displayEpisode",
+                                    style = MaterialTheme.typography.labelMedium.copy(
+                                        fontWeight = FontWeight.Normal,
+                                        letterSpacing = 1.sp
+                                    ),
+                                    color = GoldAura500,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+
+                        uiState.currentPrompt?.let { prompt ->
+                            Text(
+                                text = prompt.category.displayLabel,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = GoldAura500.copy(alpha = 0.7f),
+                                letterSpacing = 2.sp
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = prompt.question,
+                                style = MaterialTheme.typography.displaySmall.copy(
+                                    fontWeight = FontWeight.Light,
+                                    fontSize = 20.sp
+                                ),
+                                color = Color.White,
+                                textAlign = TextAlign.Start,
+                                lineHeight = 26.sp
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            if (!uiState.isPromptLoading) {
+                                TextButton(
+                                    onClick = onNextPrompt,
+                                    colors = ButtonDefaults.textButtonColors(
+                                        contentColor = Color(0xFFFFB74D).copy(alpha = 0.6f)
+                                    ),
+                                    contentPadding = PaddingValues(0.dp)
+                                ) {
+                                    Text(
+                                        text = "Try Another Prompt →",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.Light
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.width(16.dp))
+
+                    // RIGHT COLUMN: Waveform + Timer + Controls
+                    Column(
+                        modifier = Modifier
+                            .weight(0.9f)
+                            .fillMaxHeight(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        AmbientWaveform(
+                            amplitudes = uiState.amplitudes,
+                            liveAmplitude = uiState.currentAmplitude,
+                            progress = 0f,
+                            isPaused = (uiState.status == RecordingStatus.PAUSED),
+                            samplingMode = com.saurabh.artifact.util.WaveformProcessor.SamplingMode.SCROLL,
+                            context = WaveformContext.Recording,
+                            waveformHeight = 44.dp,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp)
+                        )
+
                         val timerDescription = buildString {
                             append("Recording duration: ")
                             val mins = uiState.durationSeconds / 60
                             val secs = uiState.durationSeconds % 60
-                            if (mins > 0) {
-                                append("$mins ${if (mins == 1L) "minute" else "minutes"} ")
-                            }
-                            append("$secs ${if (secs == 1L) "second" else "seconds"}")
+                            if (mins > 0) append("$mins min ")
+                            append("$secs sec")
                         }
                         Text(
                             text = TimeUtils.formatDuration(uiState.durationSeconds, LocalConfiguration.current),
                             style = MaterialTheme.typography.displaySmall.copy(
                                 fontWeight = FontWeight.ExtraLight,
-                                letterSpacing = 4.sp
+                                fontSize = 24.sp,
+                                letterSpacing = 2.sp
                             ),
                             color = Color.White.copy(alpha = 0.9f),
-                            modifier = Modifier.semantics {
-                                contentDescription = timerDescription
-                            }
+                            modifier = Modifier.semantics { contentDescription = timerDescription }
                         )
-                        
-                        if (uiState.isStorageLow && uiState.error == null) {
-                            Text(
-                                text = "Low storage space",
-                                color = Color(0xFFFFB74D), // Amber warning
-                                style = MaterialTheme.typography.bodySmall,
-                                modifier = Modifier.padding(top = 4.dp)
-                            )
-                        }
 
-                        uiState.error?.let { error ->
-                            val errorMessage = when (error) {
-                                is RecordingError.PermissionDenied -> "Permission Denied"
-                                is RecordingError.HardwareInUse -> "Microphone in use by another app"
-                                is RecordingError.StorageFull -> "Storage is full"
-                                is RecordingError.ReservationFailed -> "Network connection required to assign Episode Number before recording"
-                                is RecordingError.Unknown -> "Recording failed"
-                            }
-                            
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier.padding(top = 12.dp)
-                            ) {
-                                Text(
-                                    text = errorMessage,
-                                    color = Color(0xFFE91E63),
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                                
-                                Spacer(modifier = Modifier.height(16.dp))
-                                
-                                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                                    TextButton(
-                                        onClick = { 
-                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                            viewModel.startRecording() 
-                                        },
-                                        colors = ButtonDefaults.textButtonColors(contentColor = Color.White.copy(alpha = 0.6f))
-                                    ) {
-                                        Text("Retry")
-                                    }
-                                    
-                                    TextButton(
-                                        onClick = safeOnBack,
-                                        colors = ButtonDefaults.textButtonColors(contentColor = Color.White.copy(alpha = 0.4f))
-                                    ) {
-                                        Text("Exit")
-                                    }
-                                }
-                            }
-                        }
+                        EnhancedRecordingControls(
+                            status = uiState.status,
+                            compact = true,
+                            onPrimaryActionClick = onPrimaryActionClick,
+                            onPauseClick = onPauseClick,
+                            onResumeClick = onResumeClick,
+                            onDeleteClick = onDeleteClick,
+                            onFinishClick = onFinishClick
+                        )
                     }
-
-                    Spacer(modifier = Modifier.height(48.dp))
-
-                    // Redesigned Cinematic Controls
-                    EnhancedRecordingControls(
-                        status = uiState.status,
-                        onPrimaryActionClick = {
-                            currentRequestPermission()
-                        },
-                        onPauseClick = {
-                            viewModel.pauseRecording()
-                        },
-                        onResumeClick = {
-                            viewModel.resumeRecording()
-                        },
-                        onDeleteClick = {
-                            showDeleteConfirmation = true
-                        },
-                        onFinishClick = {
-                            viewModel.stopRecording()
-                        }
-                    )
                 }
             }
         }
@@ -576,6 +838,7 @@ fun RecordingScreen(
 @Composable
 fun EnhancedRecordingControls(
     status: RecordingStatus,
+    compact: Boolean = false,
     onPrimaryActionClick: () -> Unit = {},
     onPauseClick: () -> Unit = {},
     onResumeClick: () -> Unit = onPauseClick,
@@ -596,14 +859,19 @@ fun EnhancedRecordingControls(
     val finishEnabled = !isPreparing && (isRecording || isPaused)
     val centerEnabled = !isPreparing && (isRecording || isPaused || status == RecordingStatus.IDLE || status == RecordingStatus.FAILED)
 
+    val centerBoxSize = if (compact) 96.dp else 120.dp
+    val outerGlowSize = if (compact) 84.dp else 100.dp
+    val innerButtonSize = if (compact) 72.dp else 80.dp
+    val centerIconSize = if (compact) 28.dp else 32.dp
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 24.dp),
+            .padding(horizontal = if (compact) 16.dp else 24.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceEvenly
     ) {
-        // Left Control — Discard
+        // Left Control — Discard (Minimum 48dp x 48dp touch target)
         IconButton(
             onClick = {
                 if (discardEnabled) {
@@ -620,16 +888,16 @@ fun EnhancedRecordingControls(
             )
         }
 
-        // Center Control — Massive Glowing Pause / Resume / Mic Button
+        // Center Control — Glowing Pause / Resume / Mic Button
         Box(
             contentAlignment = Alignment.Center,
-            modifier = Modifier.size(120.dp)
+            modifier = Modifier.size(centerBoxSize)
         ) {
             val infiniteTransition = rememberInfiniteTransition(label = "Heartbeat")
 
             val pulseScale by infiniteTransition.animateFloat(
                 initialValue = 1f,
-                targetValue = if (isRecording) 1.15f else 1f,
+                targetValue = if (isRecording) (if (compact) 1.10f else 1.15f) else 1f,
                 animationSpec = infiniteRepeatable(
                     animation = tween(1000, easing = EaseInOutSine),
                     repeatMode = RepeatMode.Reverse
@@ -657,7 +925,7 @@ fun EnhancedRecordingControls(
             if (isRecording || isPaused) {
                 Box(
                     modifier = Modifier
-                        .size(100.dp)
+                        .size(outerGlowSize)
                         .scale(pulseScale)
                         .background(
                             brush = Brush.radialGradient(
@@ -684,7 +952,7 @@ fun EnhancedRecordingControls(
                     }
                 },
                 enabled = centerEnabled,
-                modifier = Modifier.size(80.dp),
+                modifier = Modifier.size(innerButtonSize),
                 shape = CircleShape,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = when {
@@ -715,12 +983,12 @@ fun EnhancedRecordingControls(
                         isPreparing -> "Pause Recording"
                         else -> "Start Recording"
                     },
-                    modifier = Modifier.size(32.dp)
+                    modifier = Modifier.size(centerIconSize)
                 )
             }
         }
 
-        // Right Control — Finish
+        // Right Control — Finish (Minimum 48dp x 48dp touch target)
         IconButton(
             onClick = {
                 if (finishEnabled) {
@@ -751,9 +1019,19 @@ fun EnhancedRecordingControls(
 fun RecordingScreenPreview() {
     ArtifactTheme {
         Box(modifier = Modifier.background(Obsidian950)) {
-            RecordingScreen(
-                onFinished = {},
-                onBack = {}
+            RecordingScreenContent(
+                uiState = RecordingUiState(
+                    episodeNumber = 12,
+                    currentPrompt = com.saurabh.artifact.model.ReflectionPrompt(
+                        id = "preview_prompt",
+                        category = com.saurabh.artifact.model.PromptCategory.GENERAL,
+                        question = "What is a moment that changed the way you see yourself?"
+                    ),
+                    status = RecordingStatus.RECORDING,
+                    durationSeconds = 85L,
+                    amplitudes = List(30) { (it % 8) / 10f },
+                    currentAmplitude = 0.5f
+                )
             )
         }
     }

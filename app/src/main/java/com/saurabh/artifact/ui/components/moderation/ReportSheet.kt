@@ -1,7 +1,9 @@
 package com.saurabh.artifact.ui.components.moderation
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
@@ -23,6 +25,11 @@ fun ReportSheet(
     var selectedReason by remember { mutableStateOf<ReportReason?>(null) }
     var details by remember { mutableStateOf("") }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scrollState = rememberScrollState()
+
+    LaunchedEffect(selectedReason) {
+        scrollState.scrollTo(0)
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -32,13 +39,19 @@ fun ReportSheet(
         containerColor = MaterialTheme.colorScheme.surface,
         contentColor = MaterialTheme.colorScheme.onSurface,
         tonalElevation = 0.dp,
+        contentWindowInsets = {
+            BottomSheetDefaults.windowInsets.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)
+        }
     ) {
         // Sheet Content
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .verticalScroll(scrollState)
                 .padding(horizontal = Spacing.Large)
-                .padding(bottom = Spacing.ExtraLarge + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding())
+                .navigationBarsPadding()
+                .imePadding()
+                .padding(bottom = Spacing.Large)
         ) {
             Text(
                 text = "Report content",
@@ -83,17 +96,22 @@ fun ReportSheet(
                 Button(
                     onClick = {
                         selectedReason?.let { onReportSubmitted(it, details) }
-                        // Dismissing is handled by the parent calling onDismiss which removes the composable
                     },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .defaultMinSize(minHeight = 48.dp),
                     shape = MaterialTheme.shapes.medium
                 ) {
                     Text("Submit Report")
                 }
+
+                Spacer(modifier = Modifier.height(Spacing.Small))
                 
                 TextButton(
                     onClick = { selectedReason = null },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .defaultMinSize(minHeight = 48.dp)
                 ) {
                     Text("Back", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -110,7 +128,9 @@ private fun ReportOption(
     Surface(
         onClick = onClick,
         color = MaterialTheme.colorScheme.surface,
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .defaultMinSize(minHeight = 48.dp)
     ) {
         Row(
             modifier = Modifier.padding(vertical = Spacing.Medium),

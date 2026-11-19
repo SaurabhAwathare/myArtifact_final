@@ -4,8 +4,10 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -13,8 +15,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.outlined.Shield
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -100,118 +104,195 @@ fun OnboardingScreen(
 
 @Composable
 fun OnboardingPage1() {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+    BoxWithConstraints(
+        modifier = Modifier.fillMaxSize()
     ) {
-        // Hero Section
-        Box(
-            modifier = Modifier
-                .size(200.dp)
-                .clip(CircleShape)
-                .background(
-                    brush = Brush.radialGradient(
-                        colors = listOf(GoldAura500.copy(alpha = 0.1f), Color.Transparent)
-                    )
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            AnimatedWaveform()
+        val isShortHeight = maxHeight < 500.dp
+        val isCompact = maxWidth < 360.dp || maxHeight < 640.dp
+
+        val heroSize = when {
+            isShortHeight -> 120.dp
+            isCompact -> 150.dp
+            else -> 200.dp
+        }
+        val spacerTop = when {
+            isShortHeight -> 16.dp
+            isCompact -> 24.dp
+            else -> 48.dp
+        }
+        val spacerBetween = if (isShortHeight) 8.dp else 16.dp
+
+        val titleStyle = if (isShortHeight || isCompact) {
+            MaterialTheme.typography.headlineMedium
+        } else {
+            MaterialTheme.typography.displayMedium
         }
 
-        Spacer(modifier = Modifier.height(48.dp))
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp, vertical = if (isShortHeight) 12.dp else 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = if (isShortHeight) Arrangement.Top else Arrangement.Center
+        ) {
+            // Hero Section
+            Box(
+                modifier = Modifier
+                    .size(heroSize)
+                    .clip(CircleShape)
+                    .background(
+                        brush = Brush.radialGradient(
+                            colors = listOf(GoldAura500.copy(alpha = 0.1f), Color.Transparent)
+                        )
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                AnimatedWaveform()
+            }
 
-        Text(
-            text = stringResource(R.string.onboarding_safe_space_title),
-            style = MaterialTheme.typography.displayMedium,
-            color = Color.White,
-            textAlign = TextAlign.Center
-        )
+            Spacer(modifier = Modifier.height(spacerTop))
 
-        Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = stringResource(R.string.onboarding_safe_space_title),
+                style = titleStyle,
+                color = Color.White,
+                textAlign = TextAlign.Center
+            )
 
-        Text(
-            text = stringResource(R.string.onboarding_safe_space_desc),
-            style = MaterialTheme.typography.bodyLarge,
-            color = Color.White.copy(alpha = 0.7f),
-            textAlign = TextAlign.Center
-        )
+            Spacer(modifier = Modifier.height(spacerBetween))
+
+            Text(
+                text = stringResource(R.string.onboarding_safe_space_desc),
+                style = MaterialTheme.typography.bodyLarge,
+                color = Color.White.copy(alpha = 0.7f),
+                textAlign = TextAlign.Center
+            )
+        }
     }
 }
 
 @Composable
 fun OnboardingPage2() {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+    BoxWithConstraints(
+        modifier = Modifier.fillMaxSize()
     ) {
-        HumanALogo(
-            size = 100.dp,
-            isPulsing = false // Static focus for identity concept
-        )
+        val isShortHeight = maxHeight < 500.dp
+        val isCompact = maxWidth < 360.dp || maxHeight < 640.dp
 
-        Spacer(modifier = Modifier.height(48.dp))
+        val logoSize = when {
+            isShortHeight -> 64.dp
+            isCompact -> 80.dp
+            else -> 100.dp
+        }
+        val spacerTop = when {
+            isShortHeight -> 16.dp
+            isCompact -> 24.dp
+            else -> 48.dp
+        }
+        val spacerBetween = if (isShortHeight) 8.dp else 16.dp
 
-        Text(
-            text = stringResource(R.string.onboarding_identity_title),
-            style = MaterialTheme.typography.displayMedium,
-            color = Color.White,
-            textAlign = TextAlign.Center
-        )
+        val titleStyle = if (isShortHeight || isCompact) {
+            MaterialTheme.typography.headlineMedium
+        } else {
+            MaterialTheme.typography.displayMedium
+        }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp, vertical = if (isShortHeight) 12.dp else 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = if (isShortHeight) Arrangement.Top else Arrangement.Center
+        ) {
+            HumanALogo(
+                size = logoSize,
+                isPulsing = false // Static focus for identity concept
+            )
 
-        Text(
-            text = stringResource(R.string.onboarding_identity_desc),
-            style = MaterialTheme.typography.bodyLarge,
-            color = Color.White.copy(alpha = 0.7f),
-            textAlign = TextAlign.Center,
-            lineHeight = 32.sp
-        )
+            Spacer(modifier = Modifier.height(spacerTop))
+
+            Text(
+                text = stringResource(R.string.onboarding_identity_title),
+                style = titleStyle,
+                color = Color.White,
+                textAlign = TextAlign.Center
+            )
+
+            Spacer(modifier = Modifier.height(spacerBetween))
+
+            Text(
+                text = stringResource(R.string.onboarding_identity_desc),
+                style = MaterialTheme.typography.bodyLarge,
+                color = Color.White.copy(alpha = 0.7f),
+                textAlign = TextAlign.Center
+            )
+        }
     }
 }
 
 @Composable
 fun OnboardingPage3() {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+    BoxWithConstraints(
+        modifier = Modifier.fillMaxSize()
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(200.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            AnimatedWaveform()
+        val isShortHeight = maxHeight < 500.dp
+        val isCompact = maxWidth < 360.dp || maxHeight < 640.dp
+
+        val heroHeight = when {
+            isShortHeight -> 120.dp
+            isCompact -> 150.dp
+            else -> 200.dp
+        }
+        val spacerTop = when {
+            isShortHeight -> 16.dp
+            isCompact -> 24.dp
+            else -> 48.dp
+        }
+        val spacerBetween = if (isShortHeight) 8.dp else 16.dp
+
+        val titleStyle = if (isShortHeight || isCompact) {
+            MaterialTheme.typography.headlineMedium
+        } else {
+            MaterialTheme.typography.displayMedium
         }
 
-        Spacer(modifier = Modifier.height(48.dp))
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp, vertical = if (isShortHeight) 12.dp else 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = if (isShortHeight) Arrangement.Top else Arrangement.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(heroHeight),
+                contentAlignment = Alignment.Center
+            ) {
+                AnimatedWaveform()
+            }
 
-        Text(
-            text = stringResource(R.string.onboarding_voice_title),
-            style = MaterialTheme.typography.displayMedium,
-            color = Color.White,
-            textAlign = TextAlign.Center
-        )
+            Spacer(modifier = Modifier.height(spacerTop))
 
-        Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = stringResource(R.string.onboarding_voice_title),
+                style = titleStyle,
+                color = Color.White,
+                textAlign = TextAlign.Center
+            )
 
-        Text(
-            text = stringResource(R.string.onboarding_voice_desc),
-            style = MaterialTheme.typography.bodyLarge,
-            color = Color.White.copy(alpha = 0.7f),
-            textAlign = TextAlign.Center
-        )
+            Spacer(modifier = Modifier.height(spacerBetween))
+
+            Text(
+                text = stringResource(R.string.onboarding_voice_desc),
+                style = MaterialTheme.typography.bodyLarge,
+                color = Color.White.copy(alpha = 0.7f),
+                textAlign = TextAlign.Center
+            )
+        }
     }
 }
 
@@ -232,7 +313,7 @@ fun OnboardingFooter(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(24.dp),
+            .padding(horizontal = 24.dp, vertical = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Button(
@@ -254,7 +335,10 @@ fun OnboardingFooter(
         }
 
         if (currentPage < 2) {
-            TextButton(onClick = onSkip) {
+            TextButton(
+                onClick = onSkip,
+                modifier = Modifier.defaultMinSize(minHeight = 48.dp)
+            ) {
                 Text(
                     text = stringResource(R.string.onboarding_skip),
                     color = Color.White.copy(alpha = 0.5f),

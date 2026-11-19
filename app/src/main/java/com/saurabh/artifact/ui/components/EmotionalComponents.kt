@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -13,6 +14,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.saurabh.artifact.model.Emotion
@@ -22,13 +24,17 @@ import com.saurabh.artifact.ui.theme.ArtifactTheme
  * PetalChip: A custom organic-shaped chip for filters.
  * Features one unique rounded corner to feel less "industrial".
  * Displays clean text labels only with a restrained dark surface and subtle amber accent.
+ *
+ * Implements accessible selection semantics for filter controls and ensures a minimum
+ * 48dp x 48dp interactive touch target while preserving existing visual dimensions.
  */
 @Composable
 fun PetalChip(
     label: String,
     selected: Boolean,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    role: Role? = Role.RadioButton,
 ) {
     val petalShape = RoundedCornerShape(
         topStart = 16.dp,
@@ -57,18 +63,28 @@ fun PetalChip(
 
     Box(
         modifier = modifier
-            .background(color = backgroundColor, shape = petalShape)
-            .border(width = 1.dp, color = borderColor, shape = petalShape)
-            .clip(petalShape)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
+            .selectable(
+                selected = selected,
+                onClick = onClick,
+                role = role
+            ),
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelMedium,
-            color = textColor
-        )
+        Box(
+            modifier = Modifier
+                .background(color = backgroundColor, shape = petalShape)
+                .border(width = 1.dp, color = borderColor, shape = petalShape)
+                .clip(petalShape)
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                color = textColor
+            )
+        }
     }
 }
 

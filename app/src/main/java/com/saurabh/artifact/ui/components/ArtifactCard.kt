@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -94,7 +95,7 @@ fun ArtifactCard(
     onFeedbackClick: () -> Unit = {},
     onSettingsClick: () -> Unit = {},
     onAuthorClick: (String) -> Unit = {},
-    onResonatorsCountClick: (String) -> Unit = {},
+    onResonatorsCountClick: ((String) -> Unit)? = null,
     currentUserId: String? = null,
     creatorProfile: User? = null,
     artifactDetail: com.saurabh.artifact.model.ArtifactDetail? = null,
@@ -226,14 +227,51 @@ fun ArtifactCard(
                                 Text("Content Hidden", style = ArtifactTheme.typography.labelMedium, color = ArtifactTheme.colors.statusError)
                             }
                         } else {
-                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            val isAuthorClickable = resolvedIdentity.personaId.isNotBlank()
+                            val authorClickAction: (() -> Unit)? = if (isAuthorClickable) {
+                                { onAuthorClick(resolvedIdentity.personaId) }
+                            } else null
+
+                            val authorA11yDescription = remember(resolvedIdentity, artifact.createdAt, isPending) {
+                                buildString {
+                                    append(resolvedIdentity.name)
+                                    if (resolvedIdentity.sigil.isNotEmpty()) {
+                                        append(", ")
+                                        append(resolvedIdentity.sigil)
+                                    }
+                                    append(", ")
+                                    append(TimeUtils.getRelativeTime(artifact.createdAt))
+                                    if (isPending) {
+                                        append(", pending upload")
+                                    }
+                                }
+                            }
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .defaultMinSize(minHeight = 48.dp)
+                                    .clip(MaterialTheme.shapes.small)
+                                    .then(
+                                        if (authorClickAction != null) {
+                                            Modifier.clickable(
+                                                role = Role.Button,
+                                                onClickLabel = "View author profile",
+                                                onClick = authorClickAction
+                                            )
+                                        } else {
+                                            Modifier
+                                        }
+                                    )
+                                    .semantics(mergeDescendants = true) {
+                                        contentDescription = authorA11yDescription
+                                    }
+                            ) {
                                 ArtifactSigil(
                                     config = resolvedIdentity.sigilConfig,
                                     size = 32.dp,
-                                    isStatic = true,
-                                    modifier = Modifier.clickable { 
-                                        if (resolvedIdentity.personaId.isNotBlank()) onAuthorClick(resolvedIdentity.personaId) 
-                                    }
+                                    isStatic = true
                                 )
                                 
                                 Spacer(modifier = Modifier.width(12.dp))
@@ -242,11 +280,7 @@ fun ArtifactCard(
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text(
                                             text = resolvedIdentity.name,
-                                            modifier = Modifier
-                                                .weight(1f, fill = false)
-                                                .clickable { 
-                                                    if (resolvedIdentity.personaId.isNotBlank()) onAuthorClick(resolvedIdentity.personaId) 
-                                                },
+                                            modifier = Modifier.weight(1f, fill = false),
                                             style = ArtifactTheme.typography.titleSmall.copy(
                                                 fontWeight = FontWeight.Medium,
                                                 fontSize = 15.sp
@@ -287,31 +321,6 @@ fun ArtifactCard(
                                                 maxLines = 1
                                             )
                                         }
-                                    }
-                                }
-                                
-                                if (displayEmotionWithEmoji.isNotEmpty()) {
-                                    Spacer(modifier = Modifier.width(Spacing.Small))
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(MaterialTheme.shapes.small)
-                                            .background(ArtifactTheme.colors.surfaceLoom)
-                                            .border(
-                                                width = 1.dp,
-                                                color = ArtifactTheme.colors.waveformInactive.copy(alpha = 0.5f),
-                                                shape = MaterialTheme.shapes.small
-                                            )
-                                            .padding(horizontal = 8.dp, vertical = 3.dp)
-                                            .semantics {
-                                                contentDescription = "Emotion: ${artifact.emotion}"
-                                            }
-                                    ) {
-                                        Text(
-                                            text = displayEmotionWithEmoji,
-                                            style = ArtifactTheme.typography.labelSmall,
-                                            color = ArtifactTheme.colors.onSurfaceAura,
-                                            maxLines = 1
-                                        )
                                     }
                                 }
                             }
@@ -473,20 +482,54 @@ fun ArtifactCard(
                             }
                         }
 
-                        if (hydrationLevel >= HydrationLevel.METADATA &&
-                            effectiveReactionCounts.totalCount > 0
-                        ) {
-                            Spacer(modifier = Modifier.height(Spacing.ExtraSmall))
+                        val showBottomRow = displayEmotionWithEmoji.isNotEmpty() ||
+                            (hydrationLevel >= HydrationLevel.METADATA && effectiveReactionCounts.totalCount > 0)
+
+                        if (showBottomRow) {
+                            Spacer(modifier = Modifier.height(Spacing.Medium))
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.End,
+                                horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                ResonanceDisplay(
-                                    counts = effectiveReactionCounts,
-                                    isOwner = isOwner,
-                                    onClick = { onResonatorsCountClick(artifact.id) }
-                                )
+                                if (displayEmotionWithEmoji.isNotEmpty()) {
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f, fill = false)
+                                            .clip(MaterialTheme.shapes.small)
+                                            .background(ArtifactTheme.colors.surfaceLoom)
+                                            .border(
+                                                width = 1.dp,
+                                                color = ArtifactTheme.colors.waveformInactive.copy(alpha = 0.5f),
+                                                shape = MaterialTheme.shapes.small
+                                            )
+                                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                                            .semantics {
+                                                contentDescription = "Emotion: ${artifact.emotion}"
+                                            }
+                                    ) {
+                                        Text(
+                                            text = displayEmotionWithEmoji,
+                                            style = ArtifactTheme.typography.labelSmall,
+                                            color = ArtifactTheme.colors.onSurfaceAura,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                } else {
+                                    Spacer(modifier = Modifier.width(0.dp))
+                                }
+
+                                if (hydrationLevel >= HydrationLevel.METADATA &&
+                                    effectiveReactionCounts.totalCount > 0
+                                ) {
+                                    Spacer(modifier = Modifier.width(Spacing.Small))
+                                    ResonanceDisplay(
+                                        counts = effectiveReactionCounts,
+                                        isOwner = isOwner,
+                                        onClick = onResonatorsCountClick?.let { cb -> { cb(artifact.id) } }
+                                    )
+                                }
                             }
                         }
                     }
@@ -586,12 +629,17 @@ private fun LightweightArtifactCard(
             .padding(Spacing.Large)
     ) {
         Column {
-            // Header Row: Sigil + Author Info + Emotion Chip + More Options reservation
+            // Header Row: Sigil + Author Info + More Options reservation
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .weight(1f)
+                        .defaultMinSize(minHeight = 48.dp)
+                ) {
                     ArtifactSigil(
                         config = resolvedIdentity.sigilConfig,
                         size = 32.dp,
@@ -633,31 +681,6 @@ private fun LightweightArtifactCard(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
-                    }
-                    
-                    if (displayEmotionWithEmoji.isNotEmpty()) {
-                        Spacer(modifier = Modifier.width(Spacing.Small))
-                        Box(
-                            modifier = Modifier
-                                .clip(MaterialTheme.shapes.small)
-                                .background(ArtifactTheme.colors.surfaceLoom)
-                                .border(
-                                    width = 1.dp,
-                                    color = ArtifactTheme.colors.waveformInactive.copy(alpha = 0.5f),
-                                    shape = MaterialTheme.shapes.small
-                                )
-                                .padding(horizontal = 8.dp, vertical = 3.dp)
-                                .semantics {
-                                    contentDescription = "Emotion: ${artifact.emotion}"
-                                }
-                        ) {
-                            Text(
-                                text = displayEmotionWithEmoji,
-                                style = ArtifactTheme.typography.labelSmall,
-                                color = ArtifactTheme.colors.onSurfaceAura,
-                                maxLines = 1
-                            )
-                        }
                     }
                 }
 
@@ -736,23 +759,55 @@ private fun LightweightArtifactCard(
                 }
             }
 
-            // Resonance Row parity when reactionCount > 0
-            if (artifact.reactionCount > 0) {
-                Spacer(modifier = Modifier.height(Spacing.ExtraSmall))
+            // Bottom Row: Emotion Tag (Bottom-Left) & Resonance parity (Bottom-Right)
+            val showBottomRow = displayEmotionWithEmoji.isNotEmpty() || artifact.reactionCount > 0
+            if (showBottomRow) {
+                Spacer(modifier = Modifier.height(Spacing.Medium))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    ResonanceDisplay(
-                        counts = ArtifactReactionCounts(
-                            artifactId = artifact.id,
-                            totalCount = artifact.reactionCount,
-                            visibility = artifact.reactionVisibility
-                        ),
-                        isOwner = false,
-                        onClick = {}
-                    )
+                    if (displayEmotionWithEmoji.isNotEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f, fill = false)
+                                .clip(MaterialTheme.shapes.small)
+                                .background(ArtifactTheme.colors.surfaceLoom)
+                                .border(
+                                    width = 1.dp,
+                                    color = ArtifactTheme.colors.waveformInactive.copy(alpha = 0.5f),
+                                    shape = MaterialTheme.shapes.small
+                                )
+                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                                .semantics {
+                                    contentDescription = "Emotion: ${artifact.emotion}"
+                                }
+                        ) {
+                            Text(
+                                text = displayEmotionWithEmoji,
+                                style = ArtifactTheme.typography.labelSmall,
+                                color = ArtifactTheme.colors.onSurfaceAura,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    } else {
+                        Spacer(modifier = Modifier.width(0.dp))
+                    }
+
+                    if (artifact.reactionCount > 0) {
+                        Spacer(modifier = Modifier.width(Spacing.Small))
+                        ResonanceDisplay(
+                            counts = ArtifactReactionCounts(
+                                artifactId = artifact.id,
+                                totalCount = artifact.reactionCount,
+                                visibility = artifact.reactionVisibility
+                            ),
+                            isOwner = false,
+                            onClick = null
+                        )
+                    }
                 }
             }
         }
