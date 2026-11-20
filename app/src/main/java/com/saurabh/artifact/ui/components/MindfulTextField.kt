@@ -1,10 +1,10 @@
 package com.saurabh.artifact.ui.components
 
-import android.util.Log
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.BasicTextField
@@ -14,13 +14,11 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.saurabh.artifact.ui.theme.EmberGlow
@@ -37,15 +35,11 @@ fun MindfulTextField(
     placeholder: String,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    maxLines: Int = 4,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
     keyboardActions: KeyboardActions = KeyboardActions.Default,
     visualTransformation: VisualTransformation = VisualTransformation.None
 ) {
-    Log.d("COMMENT_FOCUS", "MindfulTextField: enabled=$enabled valueLength=${value.length}")
-    SideEffect {
-        Log.d("COMMENT_FOCUS", "MindfulTextField: Recomposition")
-    }
-
     var isFocused by remember { mutableStateOf(false) }
     
     val underlineColor by animateColorAsState(
@@ -54,30 +48,15 @@ fun MindfulTextField(
         label = "UnderlineColor"
     )
 
-    Column(modifier = modifier
-        .padding(vertical = 8.dp)
-        .onGloballyPositioned { coordinates ->
-            Log.d("COMMENT_FOCUS", "MindfulTextField: size=${coordinates.size}")
-        }
-        .pointerInput(Unit) {
-            awaitPointerEventScope {
-                while (true) {
-                    val event = awaitPointerEvent(PointerEventPass.Initial)
-                    Log.d("COMMENT_FOCUS", "MindfulTextField: PointerEvent: type=${event.type}")
-                }
-            }
-        }
-    ) {
+    Column(modifier = modifier.padding(vertical = 4.dp)) {
         BasicTextField(
             value = value,
             onValueChange = onValueChange,
             enabled = enabled,
+            maxLines = maxLines,
             modifier = Modifier
                 .fillMaxWidth()
-                .onFocusChanged { 
-                    Log.d("COMMENT_FOCUS", "MindfulTextField: onFocusChanged: isFocused=${it.isFocused} hasFocus=${it.hasFocus}")
-                    isFocused = it.isFocused 
-                }
+                .onFocusChanged { isFocused = it.isFocused }
                 .padding(bottom = 8.dp),
             textStyle = MaterialTheme.typography.bodyLarge.copy(color = Color.White),
             cursorBrush = SolidColor(EmberGlow),
@@ -85,7 +64,12 @@ fun MindfulTextField(
             keyboardActions = keyboardActions,
             visualTransformation = visualTransformation,
             decorationBox = { innerTextField ->
-                Box {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .defaultMinSize(minHeight = 48.dp),
+                    contentAlignment = Alignment.CenterStart
+                ) {
                     if (value.isEmpty()) {
                         Text(
                             text = placeholder,

@@ -168,7 +168,7 @@ fun PlaybackSpeedSelector(
             TextButton(
                 onClick = { onSpeedSelected(speed) },
                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 44.dp),
+                modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp),
                 colors = ButtonDefaults.textButtonColors(
                     contentColor = if (isSelected) GoldAura400 else Color.White.copy(alpha = 0.5f)
                 )

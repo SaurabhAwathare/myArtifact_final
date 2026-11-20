@@ -33,6 +33,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -57,7 +60,14 @@ fun MiniRecorder(
             .heightIn(min = 64.dp)
             .fillMaxWidth(0.9f)
             .clip(RoundedCornerShape(32.dp))
-            .clickable(onClick = onClick),
+            .clickable(
+                role = Role.Button,
+                onClickLabel = "Return to recording",
+                onClick = onClick
+            )
+            .semantics {
+                contentDescription = "Mini recorder"
+            },
         color = Color(0xFF1A0808).copy(alpha = 0.98f),
         tonalElevation = 12.dp,
         border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.15f))

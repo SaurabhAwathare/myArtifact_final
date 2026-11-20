@@ -6,7 +6,6 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.saurabh.artifact.model.Comment
@@ -30,7 +29,7 @@ import kotlinx.coroutines.flow.collectLatest
  * @param onLoadNextPage Callback to load more comments.
  * @param onRetry Callback to retry the initial load.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun CommentSheet(
     uiState: CommentUiState,
@@ -73,28 +72,19 @@ fun CommentSheet(
         }
     }
 
-    val density = LocalDensity.current
-    val isImeVisible = WindowInsets.ime.getBottom(density) > 0
-    val bottomInsetPadding = if (isImeVisible) {
-        0.dp
-    } else {
-        WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    }
-
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         modifier = modifier,
         dragHandle = { BottomSheetDefaults.DragHandle() },
         containerColor = MaterialTheme.colorScheme.surface,
-        contentWindowInsets = {
-            BottomSheetDefaults.windowInsets.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)
-        }
+        contentWindowInsets = { BottomSheetDefaults.windowInsets }
     ) {
+        val isImeVisible = WindowInsets.isImeVisible
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.85f)
+                .fillMaxHeight(if (isImeVisible) 1f else 0.85f)
         ) {
             Column(
                 modifier = Modifier.fillMaxSize()
@@ -147,9 +137,7 @@ fun CommentSheet(
                     onTextChanged = { inputText = it },
                     onSubmit = { onSubmit(inputText) },
                     onRetryUnlock = onRetryUnlock,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = bottomInsetPadding)
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
 
@@ -158,7 +146,7 @@ fun CommentSheet(
                 hostState = snackbarHostState,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = 120.dp + bottomInsetPadding) // Offset above composer
+                    .padding(bottom = 120.dp) // Offset above composer
             )
         }
     }

@@ -3659,6 +3659,20 @@ export const finalizePublish = functions.https.onCall(async (data, context) => {
   }
 
   const primaryEmotion = emotions[0];
+  const suppliedEmotion = typeof data?.emotion === "string" && data.emotion.trim().length > 0 ? data.emotion.trim() : null;
+  const suppliedPrimary = typeof data?.primaryEmotion === "string" && data.primaryEmotion.trim().length > 0 ? data.primaryEmotion.trim() : null;
+  if (suppliedEmotion && suppliedEmotion !== emotions[0]) {
+    throw new functions.https.HttpsError(
+      "failed-precondition",
+      `Primary emotion mismatch. Expected '${emotions[0]}', got '${suppliedEmotion}'.`
+    );
+  }
+  if (suppliedPrimary && suppliedPrimary !== emotions[0]) {
+    throw new functions.https.HttpsError(
+      "failed-precondition",
+      `Primary emotion mismatch. Expected '${emotions[0]}', got '${suppliedPrimary}'.`
+    );
+  }
   const durationMs = typeof data?.durationMs === "number" && data.durationMs > 0 ? Math.floor(data.durationMs) : 0;
   if (durationMs <= 0) {
     throw new functions.https.HttpsError("invalid-argument", "Valid positive durationMs is required.");
@@ -3829,35 +3843,64 @@ export const finalizePublish = functions.https.onCall(async (data, context) => {
       const approvedEmotions = reservationData.approvedEmotions;
       const expectedDigest = reservationData.metadataDigest;
 
-      if (!expectedDigest || typeof approvedTitle !== "string" || !Array.isArray(approvedEmotions)) {
-        throw new functions.https.HttpsError(
-          "failed-precondition",
-          "Publication reservation missing approved metadata snapshot or is stale."
-        );
-      }
+      const isModernReservation = Boolean(
+        expectedDigest ||
+        approvedTitle !== undefined ||
+        approvedEmotions !== undefined ||
+        reservationData.transcriptDigest !== undefined
+      );
 
-      // Verify finalization payload against approved reference
-      const computedFinalizeDigest = computeMetadataDigest(title, emotions);
-      if (computedFinalizeDigest !== expectedDigest) {
-        if (title.trim() !== approvedTitle.trim()) {
+      if (isModernReservation) {
+        if (!expectedDigest || typeof approvedTitle !== "string" || !Array.isArray(approvedEmotions)) {
           throw new functions.https.HttpsError(
             "failed-precondition",
-            "Publication title does not match approved reservation snapshot."
+            "Publication reservation missing approved metadata snapshot or is stale."
           );
         }
-        throw new functions.https.HttpsError(
-          "failed-precondition",
-          "Publication emotions do not match approved reservation snapshot."
-        );
-      }
 
-      // Explicit primary emotion check to guarantee order integrity (Priority 4 & Defect D4)
-      const approvedPrimary = approvedEmotions[0];
-      if (primaryEmotion !== approvedPrimary) {
-        throw new functions.https.HttpsError(
-          "failed-precondition",
-          "Publication primary emotion does not match approved reservation snapshot."
-        );
+        // Verify finalization payload against approved reference
+        const computedFinalizeDigest = computeMetadataDigest(title, emotions);
+        if (computedFinalizeDigest !== expectedDigest) {
+          if (title.trim() !== approvedTitle.trim()) {
+            throw new functions.https.HttpsError(
+              "failed-precondition",
+              "Publication title does not match approved reservation snapshot."
+            );
+          }
+          throw new functions.https.HttpsError(
+            "failed-precondition",
+            "Publication emotions do not match approved reservation snapshot."
+          );
+        }
+
+        // Explicit primary emotion check to guarantee order integrity (Priority 4 & Defect D4)
+        const approvedPrimary = approvedEmotions[0];
+        if (primaryEmotion !== approvedPrimary) {
+          throw new functions.https.HttpsError(
+            "failed-precondition",
+            "Publication primary emotion does not match approved reservation snapshot."
+          );
+        }
+      } else {
+        // Legacy Audio-Only Compatibility Path (Phase 2.2K Option B)
+        // Absolute Transcript Protection:
+        // A reservation without an approved transcript digest must never publish a transcript.
+        if (serverTranscriptUrl !== null) {
+          throw new functions.https.HttpsError(
+            "failed-precondition",
+            "Transcript publishing is prohibited for legacy reservations."
+          );
+        }
+
+        // Validate primary emotion equals emotions[0]
+        if (primaryEmotion !== emotions[0]) {
+          throw new functions.https.HttpsError(
+            "failed-precondition",
+            `Primary emotion mismatch. Expected '${emotions[0]}', got '${primaryEmotion}'.`
+          );
+        }
+
+        logger.info(`[FINALIZE_PUBLISH] Artifact ${cleanDraftId} finalizing under Legacy Audio-Only Compatibility Path for user ${uid}`);
       }
 
       const userRef = db.doc(`users/${uid}`);

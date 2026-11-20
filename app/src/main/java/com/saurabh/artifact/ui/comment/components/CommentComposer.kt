@@ -1,6 +1,5 @@
 package com.saurabh.artifact.ui.comment.components
 
-import android.util.Log
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -36,7 +35,6 @@ fun CommentComposer(
     onRetryUnlock: () -> Unit = {}
 ) {
     val isUnlocked = unlockState == CommentUnlockState.UNLOCKED
-    Log.d("COMMENT_FOCUS", "CommentComposer: unlockState=$unlockState isUnlocked=$isUnlocked")
     
     Column(
         modifier = modifier
@@ -62,6 +60,7 @@ fun CommentComposer(
             onValueChange = if (isUnlocked && !isSubmitting) onTextChanged else { _ -> },
             placeholder = if (isUnlocked) "Add a thoughtful response..." else "Listen before you respond",
             enabled = isUnlocked && !isSubmitting,
+            maxLines = 4,
             modifier = Modifier.fillMaxWidth()
         )
         
