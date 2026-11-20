@@ -15,11 +15,61 @@ interface DraftDao {
     @Update
     suspend fun _updateInternal(draft: ArtifactDraftEntity)
 
-    /** User-scoped: Transactional update with lifecycle validation. */
+    /** User-scoped: Transactional update with lifecycle validation and metadata immutability rules. */
     @Transaction
     suspend fun update(draft: ArtifactDraftEntity, isRecovery: Boolean = false) {
         val existing = getDraftById(draft.id, draft.userId)
-        if (existing == null || existing.lifecycle.canTransitionTo(draft.lifecycle, isRecovery)) {
+        if (existing == null) {
+            _updateInternal(draft)
+            return
+        }
+
+        // Rule 1: After publication, reject metadata modifications
+        if (existing.lifecycle == ArtifactLifecycle.PUBLISHED) {
+            if (draft.title != existing.title || draft.emotions != existing.emotions || draft.emotion != existing.emotion) {
+                android.util.Log.w("DraftDao", "Blocked metadata mutation on PUBLISHED draft ${draft.id}")
+                return
+            }
+        }
+
+        // Rule 2: During active publishing, reject metadata modifications
+        val isActivelyPublishingInExisting = existing.status.publication is SyncStatus.Uploading ||
+                                            existing.status.publication is SyncStatus.Finalizing ||
+                                            existing.status.publication is SyncStatus.Queued
+        val uploadTask = _getUploadTaskByDraftId(draft.id)
+        val isActivelyPublishingInTask = uploadTask != null && (
+            uploadTask.owner != null ||
+            uploadTask.status is SyncStatus.Uploading ||
+            uploadTask.status is SyncStatus.Finalizing ||
+            uploadTask.status is SyncStatus.Queued
+        )
+
+        if (existing.lifecycle == ArtifactLifecycle.READY_TO_PUBLISH && (isActivelyPublishingInExisting || isActivelyPublishingInTask)) {
+            if (draft.title != existing.title || draft.emotions != existing.emotions || draft.emotion != existing.emotion) {
+                android.util.Log.w("DraftDao", "Blocked metadata mutation during active publishing on draft ${draft.id}")
+                return
+            }
+        }
+
+        // Rule 3: After approval but before publishing starts, if metadata changed, invalidate approval
+        if (existing.lifecycle == ArtifactLifecycle.READY_TO_PUBLISH || existing.approvalToken != null) {
+            val metadataChanged = draft.title != existing.title || draft.emotions != existing.emotions || draft.emotion != existing.emotion
+            if (metadataChanged && draft.approvalToken != null) {
+                android.util.Log.i("DraftDao", "Metadata mutation on approved draft ${draft.id}; invalidating approval")
+                val invalidatedDraft = draft.copy(
+                    approvalToken = null,
+                    publishApprovalTimestamp = null,
+                    frozenAudioPath = null,
+                    frozenTranscriptJson = null,
+                    approvalCompleted = false,
+                    lifecycle = ArtifactLifecycle.METADATA_REQUIRED
+                )
+                _updateInternal(invalidatedDraft)
+                return
+            }
+        }
+
+        if (existing.lifecycle.canTransitionTo(draft.lifecycle, isRecovery)) {
             _updateInternal(draft)
         } else {
             android.util.Log.w("DraftDao", "Blocked backward lifecycle transition: ${existing.lifecycle} -> ${draft.lifecycle}")
@@ -138,13 +188,86 @@ interface DraftDao {
     @Query("UPDATE artifact_drafts SET durationMs = :durationMs, amplitudeData = :amplitudes, lastCheckpointTimestamp = :checkpointTimestamp, durableBytes = :durableBytes, updatedAt = :updatedAt WHERE id = :id AND userId = :userId")
     suspend fun updateRecordingCheckpoint(id: String, userId: String, durationMs: Long, amplitudes: List<Float>, checkpointTimestamp: Long, durableBytes: Long, updatedAt: Long = System.currentTimeMillis())
 
-    /** User-scoped: Update title with ownership enforcement. */
-    @Query("UPDATE artifact_drafts SET title = :title, updatedAt = :timestamp WHERE id = :id AND userId = :userId")
-    suspend fun updateTitle(id: String, userId: String, title: String?, timestamp: Long = System.currentTimeMillis())
+    /** System/Internal: Query upload task status for draft to detect active publishing. */
+    @Query("SELECT * FROM upload_tasks WHERE draftId = :draftId")
+    suspend fun _getUploadTaskByDraftId(draftId: String): UploadTaskEntity?
 
-    /** User-scoped: Update metadata with ownership enforcement. */
+    /** User-scoped: Internal raw metadata update before approval. */
     @Query("UPDATE artifact_drafts SET title = :title, emotion = :emotion, emotions = :emotions, updatedAt = :timestamp WHERE id = :id AND userId = :userId")
-    suspend fun updateMetadata(id: String, userId: String, title: String?, emotion: Emotion?, emotions: List<Emotion> = emptyList(), timestamp: Long = System.currentTimeMillis())
+    suspend fun _updateMetadataInternal(id: String, userId: String, title: String?, emotion: Emotion?, emotions: List<Emotion> = emptyList(), timestamp: Long = System.currentTimeMillis())
+
+    /** User-scoped: Atomic metadata update and approval invalidation after approval. */
+    @Query("UPDATE artifact_drafts SET title = :title, emotion = :emotion, emotions = :emotions, approvalToken = NULL, publishApprovalTimestamp = NULL, frozenAudioPath = NULL, frozenTranscriptJson = NULL, approvalCompleted = 0, lifecycle = :targetLifecycle, updatedAt = :timestamp WHERE id = :id AND userId = :userId")
+    suspend fun _updateMetadataAndInvalidateApprovalInternal(
+        id: String,
+        userId: String,
+        title: String?,
+        emotion: Emotion?,
+        emotions: List<Emotion>,
+        targetLifecycle: ArtifactLifecycle,
+        timestamp: Long
+    )
+
+    /** User-scoped: Update title with ownership enforcement and lifecycle immutability rules. */
+    @Transaction
+    suspend fun updateTitle(id: String, userId: String, title: String?, timestamp: Long = System.currentTimeMillis()) {
+        val existing = getDraftById(id, userId) ?: return
+        updateMetadata(id, userId, title, existing.emotion, existing.emotions, timestamp)
+    }
+
+    /** User-scoped: Update metadata with ownership enforcement and lifecycle immutability rules. */
+    @Transaction
+    suspend fun updateMetadata(
+        id: String,
+        userId: String,
+        title: String?,
+        emotion: Emotion?,
+        emotions: List<Emotion> = emptyList(),
+        timestamp: Long = System.currentTimeMillis()
+    ) {
+        val draft = getDraftById(id, userId) ?: return
+
+        // Rule 1: After publication: do not modify published metadata through draft editing operations
+        if (draft.lifecycle == ArtifactLifecycle.PUBLISHED) {
+            android.util.Log.w("DraftDao", "Blocked metadata mutation on PUBLISHED draft $id")
+            return
+        }
+
+        // Rule 2: During active publishing: reject metadata mutation for that publication attempt
+        val isActivelyPublishingInDraft = draft.status.publication is SyncStatus.Uploading || 
+                                         draft.status.publication is SyncStatus.Finalizing ||
+                                         draft.status.publication is SyncStatus.Queued
+        val uploadTask = _getUploadTaskByDraftId(id)
+        val isActivelyPublishingInTask = uploadTask != null && (
+            uploadTask.owner != null || 
+            uploadTask.status is SyncStatus.Uploading || 
+            uploadTask.status is SyncStatus.Finalizing || 
+            uploadTask.status is SyncStatus.Queued
+        )
+
+        if (draft.lifecycle == ArtifactLifecycle.READY_TO_PUBLISH && (isActivelyPublishingInDraft || isActivelyPublishingInTask)) {
+            android.util.Log.w("DraftDao", "Blocked metadata mutation during active publishing on draft $id")
+            return
+        }
+
+        // Rule 3: After approval but before publishing starts: metadata editing invalidates the previous approval and requires fresh approval
+        if (draft.lifecycle == ArtifactLifecycle.READY_TO_PUBLISH || draft.approvalToken != null) {
+            android.util.Log.i("DraftDao", "Metadata mutation on approved draft $id; atomically invalidating approval")
+            _updateMetadataAndInvalidateApprovalInternal(
+                id = id,
+                userId = userId,
+                title = title,
+                emotion = emotion,
+                emotions = emotions,
+                targetLifecycle = ArtifactLifecycle.METADATA_REQUIRED,
+                timestamp = timestamp
+            )
+            return
+        }
+
+        // Rule 4: Before approval: metadata can be edited normally
+        _updateMetadataInternal(id, userId, title, emotion, emotions, timestamp)
+    }
 
     /** User-scoped: Update upload checkpoint with ownership enforcement. */
     @Query("UPDATE artifact_drafts SET uploadedAudioUrl = :url, updatedAt = :timestamp WHERE id = :id AND userId = :userId")

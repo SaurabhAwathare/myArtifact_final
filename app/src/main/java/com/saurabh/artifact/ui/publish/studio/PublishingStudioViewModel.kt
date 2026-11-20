@@ -18,6 +18,7 @@ import com.saurabh.artifact.model.Emotion
 import com.saurabh.artifact.model.PlaybackSource
 import com.saurabh.artifact.model.ProcessingStatus
 import com.saurabh.artifact.model.PublishingResult
+import com.saurabh.artifact.model.SyncStatus
 import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.RecordingRepository
@@ -90,6 +91,7 @@ data class StudioSessionState(
     
     // Publication State (Local UI)
     val isPublishing: Boolean = false,
+    val isSubmitted: Boolean = false,
     val isSuccess: Boolean = false,
     val isQueuedOffline: Boolean = false,
     val isRecovering: Boolean = false,
@@ -207,7 +209,8 @@ class PublishingStudioViewModel @Inject constructor(
                     playbackProgress = progress,
                     coveragePercent = if (draft.lifecycle == ArtifactLifecycle.REVIEW_REQUIRED) reviewAndPlayback.review.coveragePercent else draft.reviewProgress,
                     isPublishing = ui.isPublishing,
-                    isSuccess = ui.isSuccess || draft.lifecycle == ArtifactLifecycle.PUBLISHED,
+                    isSubmitted = ui.isSubmitted,
+                    isSuccess = draft.lifecycle == ArtifactLifecycle.PUBLISHED && (draft.status.publication is SyncStatus.Synced || draft.remoteArtifactId != null),
                     isQueuedOffline = ui.isQueuedOffline,
                     isRecovering = isRecovering,
                     isProcessingActive = draft.status.processing is ProcessingStatus.Active,
@@ -265,6 +268,7 @@ class PublishingStudioViewModel @Inject constructor(
         _titleInput.value = null
         _currentStepOverride.value = null
         pendingPublishAfterRecovery = false
+        _uiState.value = StudioUiState()
 
         viewModelScope.launch {
             playbackCoordinator.playDraftPreview(draftId, source = PlaybackSource.REVIEW_DRAFT)
@@ -420,7 +424,7 @@ class PublishingStudioViewModel @Inject constructor(
 
             if (currentStep == StudioStep.PUBLISHING) {
                 // Reset publishing error state when retreating
-                _uiState.update { it.copy(error = null, isPublishing = false) }
+                _uiState.update { it.copy(error = null, isPublishing = false, isSubmitted = false) }
             }
 
             // Pure UI override - NEVER persist backward transitions
@@ -521,23 +525,56 @@ class PublishingStudioViewModel @Inject constructor(
                         diagnosticLogger.info(DiagnosticCategory.PUBLISH, "PUBLISH_INITIATION_SUCCESS", mapOf(LogKeys.DRAFT_ID to draftId, "result" to result.name))
                         playbackCoordinator.stop()
 
-                        if (result == PublishingResult.FAILED) {
-                            _uiState.update { it.copy(isPublishing = false, error = "Publishing failed to initiate. Please try again.") }
-                        } else {
-                            _uiState.update { 
-                                it.copy(
-                                    isPublishing = false, 
-                                    isSuccess = true,
-                                    isQueuedOffline = (result == PublishingResult.QUEUED_OFFLINE),
-                                    error = null
-                                ) 
+                        when (result) {
+                            PublishingResult.FAILED -> {
+                                _uiState.update { 
+                                    it.copy(
+                                        isPublishing = false, 
+                                        isSubmitted = false, 
+                                        error = "Publishing failed to initiate. Please try again."
+                                    ) 
+                                }
+                            }
+                            PublishingResult.UPLOAD_STARTED -> {
+                                _uiState.update { 
+                                    it.copy(
+                                        isPublishing = false, 
+                                        isSubmitted = true, 
+                                        isQueuedOffline = false, 
+                                        error = null
+                                    ) 
+                                }
+                            }
+                            PublishingResult.QUEUED_OFFLINE -> {
+                                _uiState.update { 
+                                    it.copy(
+                                        isPublishing = false, 
+                                        isSubmitted = true, 
+                                        isQueuedOffline = true, 
+                                        error = null
+                                    ) 
+                                }
+                            }
+                            PublishingResult.ALREADY_IN_PROGRESS -> {
+                                _uiState.update { 
+                                    it.copy(
+                                        isPublishing = false, 
+                                        isSubmitted = true, 
+                                        isQueuedOffline = false, 
+                                        error = null
+                                    ) 
+                                }
                             }
                         }
                     }
                     .onFailure { e ->
                         diagnosticLogger.error(DiagnosticCategory.PUBLISH, "PUBLISH_INITIATION_ERROR", mapOf(LogKeys.DRAFT_ID to draftId, LogKeys.EXCEPTION_MESSAGE to (e.message ?: "null")), e)
                         _uiState.update { 
-                            it.copy(isPublishing = false, error = e.message ?: "Failed to initiate publishing.") 
+                            it.copy(
+                                isPublishing = false, 
+                                isSubmitted = false, 
+                                error = e.message ?: "Failed to initiate publishing."
+                            ) 
                         }
                     }
             }
@@ -573,7 +610,7 @@ class PublishingStudioViewModel @Inject constructor(
 
 data class StudioUiState(
     val isPublishing: Boolean = false,
-    val isSuccess: Boolean = false,
+    val isSubmitted: Boolean = false,
     val isQueuedOffline: Boolean = false,
     val isRecovering: Boolean = false,
     val error: String? = null,

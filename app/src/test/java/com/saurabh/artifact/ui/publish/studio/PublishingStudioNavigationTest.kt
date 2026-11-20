@@ -25,8 +25,12 @@ import io.mockk.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.test.*
+import androidx.compose.ui.test.junit4.createComposeRule
+import com.saurabh.artifact.model.SyncStatus
+import com.saurabh.artifact.ui.theme.ArtifactTheme
 import org.junit.After
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -34,11 +38,16 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import kotlin.time.Duration.Companion.milliseconds
 
 @RunWith(RobolectricTestRunner::class)
+@Config(sdk = [33])
 @OptIn(ExperimentalCoroutinesApi::class)
 class PublishingStudioNavigationTest {
+    @get:Rule
+    val composeTestRule = createComposeRule()
+
     private val recordingRepository = mockk<RecordingRepository>(relaxed = true)
     private val playbackCoordinator = mockk<PlaybackCoordinator>(relaxed = true)
     private val publishArtifactUseCase = mockk<PublishArtifactUseCase>(relaxed = true)
@@ -105,7 +114,7 @@ class PublishingStudioNavigationTest {
     }
 
     @Test
-    fun `performPublish success sets isSuccess to true without locking in full screen publishing step`() = runTest {
+    fun `performPublish success sets isSubmitted to true and isSuccess to false without locking in full screen publishing step`() = runTest {
         val viewModel = createViewModel()
         val states = mutableListOf<StudioSessionState>()
         val collectJob = launch(UnconfinedTestDispatcher()) {
@@ -133,9 +142,267 @@ class PublishingStudioNavigationTest {
         advanceUntilIdle()
         
         val lastState = states.last()
-        assertTrue("Expected isSuccess to be true after publish initiation", lastState.isSuccess)
+        assertTrue("Expected isSubmitted to be true after publish initiation", lastState.isSubmitted)
+        assertFalse("Expected isSuccess to be false after publish initiation", lastState.isSuccess)
         assertFalse("Expected isPublishing to be false after completion", lastState.isPublishing)
         assertNull(lastState.error)
+
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `UPLOAD_STARTED does not produce publication success`() = runTest {
+        val viewModel = createViewModel()
+        val states = mutableListOf<StudioSessionState>()
+        val collectJob = launch(UnconfinedTestDispatcher()) {
+            viewModel.sessionState.toList(states)
+        }
+        viewModel.loadDraft(draftId)
+        runCurrent()
+
+        draftFlow.value = draftFlow.value!!.copy(
+            lifecycle = ArtifactLifecycle.READY_TO_PUBLISH,
+            emotion = Emotion.CALM,
+            reviewCompleted = true,
+            titleCompleted = true,
+            emotionCompleted = true
+        )
+        runCurrent()
+
+        coEvery { publishArtifactUseCase(any()) } returns Result.success(PublishingResult.UPLOAD_STARTED)
+        viewModel.onPublishClick()
+        runCurrent()
+        advanceUntilIdle()
+
+        val lastState = states.last()
+        assertTrue("Expected isSubmitted to be true after UPLOAD_STARTED", lastState.isSubmitted)
+        assertFalse("Expected isSuccess to be false after UPLOAD_STARTED", lastState.isSuccess)
+        assertFalse("Expected isPublishing to be false after handoff", lastState.isPublishing)
+        assertNull(lastState.error)
+
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `QUEUED_OFFLINE does not produce publication success`() = runTest {
+        val viewModel = createViewModel()
+        val states = mutableListOf<StudioSessionState>()
+        val collectJob = launch(UnconfinedTestDispatcher()) {
+            viewModel.sessionState.toList(states)
+        }
+        viewModel.loadDraft(draftId)
+        runCurrent()
+
+        draftFlow.value = draftFlow.value!!.copy(
+            lifecycle = ArtifactLifecycle.READY_TO_PUBLISH,
+            emotion = Emotion.CALM,
+            reviewCompleted = true,
+            titleCompleted = true,
+            emotionCompleted = true
+        )
+        runCurrent()
+
+        coEvery { publishArtifactUseCase(any()) } returns Result.success(PublishingResult.QUEUED_OFFLINE)
+        viewModel.onPublishClick()
+        runCurrent()
+        advanceUntilIdle()
+
+        val lastState = states.last()
+        assertTrue("Expected isSubmitted to be true after QUEUED_OFFLINE", lastState.isSubmitted)
+        assertTrue("Expected isQueuedOffline to be true after QUEUED_OFFLINE", lastState.isQueuedOffline)
+        assertFalse("Expected isSuccess to be false after QUEUED_OFFLINE", lastState.isSuccess)
+        assertFalse("Expected isPublishing to be false after handoff", lastState.isPublishing)
+        assertNull(lastState.error)
+
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `successful submission handoff can navigate Home`() = runTest {
+        val viewModel = createViewModel()
+        var finishCalled = 0
+
+        composeTestRule.setContent {
+            ArtifactTheme {
+                PublishingStudioScreen(
+                    draftId = draftId,
+                    onFinish = { finishCalled++ },
+                    onCancel = {},
+                    onSecurityRequired = {},
+                    viewModel = viewModel
+                )
+            }
+        }
+
+        // Set state to APPROVAL
+        draftFlow.value = draftFlow.value!!.copy(
+            lifecycle = ArtifactLifecycle.READY_TO_PUBLISH,
+            emotion = Emotion.CALM,
+            reviewCompleted = true,
+            titleCompleted = true,
+            emotionCompleted = true
+        )
+        composeTestRule.waitForIdle()
+
+        // Initiation returns UPLOAD_STARTED
+        coEvery { publishArtifactUseCase(any()) } returns Result.success(PublishingResult.UPLOAD_STARTED)
+        viewModel.onPublishClick()
+        composeTestRule.waitForIdle()
+
+        assertEquals("onFinish must be called once upon successful submission handoff", 1, finishCalled)
+        assertTrue("ViewModel state must report isSubmitted", viewModel.sessionState.value.isSubmitted)
+        assertFalse("ViewModel state must NOT report isSuccess", viewModel.sessionState.value.isSuccess)
+    }
+
+    @Test
+    fun `failed initiation does not navigate Home as a successful submission`() = runTest {
+        val viewModel = createViewModel()
+        var finishCalled = 0
+
+        composeTestRule.setContent {
+            ArtifactTheme {
+                PublishingStudioScreen(
+                    draftId = draftId,
+                    onFinish = { finishCalled++ },
+                    onCancel = {},
+                    onSecurityRequired = {},
+                    viewModel = viewModel
+                )
+            }
+        }
+
+        draftFlow.value = draftFlow.value!!.copy(
+            lifecycle = ArtifactLifecycle.READY_TO_PUBLISH,
+            emotion = Emotion.CALM,
+            reviewCompleted = true,
+            titleCompleted = true,
+            emotionCompleted = true
+        )
+        composeTestRule.waitForIdle()
+
+        coEvery { publishArtifactUseCase(any()) } returns Result.success(PublishingResult.FAILED)
+        viewModel.onPublishClick()
+        composeTestRule.waitForIdle()
+
+        assertEquals("onFinish must NOT be called on failed initiation", 0, finishCalled)
+        assertFalse("isSubmitted must be false on failure", viewModel.sessionState.value.isSubmitted)
+        assertFalse("isSuccess must be false on failure", viewModel.sessionState.value.isSuccess)
+    }
+
+    @Test
+    fun `actual persisted publication state produces isSuccess`() = runTest {
+        val viewModel = createViewModel()
+        val states = mutableListOf<StudioSessionState>()
+        val collectJob = launch(UnconfinedTestDispatcher()) {
+            viewModel.sessionState.toList(states)
+        }
+        viewModel.loadDraft(draftId)
+        runCurrent()
+
+        // Initially READY_TO_PUBLISH with Uploading sync status
+        draftFlow.value = draftFlow.value!!.copy(
+            lifecycle = ArtifactLifecycle.READY_TO_PUBLISH,
+            emotion = Emotion.CALM,
+            status = DraftStatus(publication = SyncStatus.Uploading)
+        )
+        runCurrent()
+        assertFalse("In-progress publishing draft must not produce isSuccess", states.last().isSuccess)
+
+        // Authoritative persisted state updates to PUBLISHED and Synced in Room
+        draftFlow.value = draftFlow.value!!.copy(
+            lifecycle = ArtifactLifecycle.PUBLISHED,
+            status = DraftStatus(publication = SyncStatus.Synced),
+            remoteArtifactId = "remote-artifact-999"
+        )
+        runCurrent()
+
+        assertTrue("Persisted PUBLISHED + Synced draft must produce isSuccess == true", states.last().isSuccess)
+
+        collectJob.cancel()
+    }
+
+    @Test
+    fun `repeated state emissions do not cause duplicate navigation`() = runTest {
+        val viewModel = createViewModel()
+        var finishCalled = 0
+
+        composeTestRule.setContent {
+            ArtifactTheme {
+                PublishingStudioScreen(
+                    draftId = draftId,
+                    onFinish = { finishCalled++ },
+                    onCancel = {},
+                    onSecurityRequired = {},
+                    viewModel = viewModel
+                )
+            }
+        }
+
+        draftFlow.value = draftFlow.value!!.copy(
+            lifecycle = ArtifactLifecycle.READY_TO_PUBLISH,
+            emotion = Emotion.CALM,
+            reviewCompleted = true,
+            titleCompleted = true,
+            emotionCompleted = true
+        )
+        composeTestRule.waitForIdle()
+
+        coEvery { publishArtifactUseCase(any()) } returns Result.success(PublishingResult.UPLOAD_STARTED)
+        viewModel.onPublishClick()
+        composeTestRule.waitForIdle()
+
+        assertEquals("Initial handoff calls onFinish once", 1, finishCalled)
+
+        // Multiple subsequent state emissions while isSubmitted is still true
+        draftFlow.value = draftFlow.value!!.copy(title = "Updated Title 1")
+        composeTestRule.waitForIdle()
+        draftFlow.value = draftFlow.value!!.copy(title = "Updated Title 2")
+        composeTestRule.waitForIdle()
+        draftFlow.value = draftFlow.value!!.copy(reviewProgress = 0.99f)
+        composeTestRule.waitForIdle()
+
+        assertEquals("Subsequent emissions must not trigger duplicate navigation", 1, finishCalled)
+    }
+
+    @Test
+    fun `existing ALREADY_IN_PROGRESS behavior remains correct`() = runTest {
+        val viewModel = createViewModel()
+        val states = mutableListOf<StudioSessionState>()
+        val collectJob = launch(UnconfinedTestDispatcher()) {
+            viewModel.sessionState.toList(states)
+        }
+        viewModel.loadDraft(draftId)
+        runCurrent()
+
+        // Case A: Draft is already being published in background
+        draftFlow.value = draftFlow.value!!.copy(
+            lifecycle = ArtifactLifecycle.READY_TO_PUBLISH,
+            emotion = Emotion.CALM,
+            reviewCompleted = true,
+            titleCompleted = true,
+            emotionCompleted = true
+        )
+        runCurrent()
+
+        coEvery { publishArtifactUseCase(any()) } returns Result.success(PublishingResult.ALREADY_IN_PROGRESS)
+        viewModel.onPublishClick()
+        runCurrent()
+        advanceUntilIdle()
+
+        val inProgressState = states.last()
+        assertTrue("Expected isSubmitted to be true for handoff", inProgressState.isSubmitted)
+        assertFalse("Expected isSuccess to be false while still uploading", inProgressState.isSuccess)
+        assertFalse("Expected isPublishing to be false", inProgressState.isPublishing)
+        assertNull(inProgressState.error)
+
+        // Case B: Persisted state reaches PUBLISHED
+        draftFlow.value = draftFlow.value!!.copy(
+            lifecycle = ArtifactLifecycle.PUBLISHED,
+            status = DraftStatus(publication = SyncStatus.Synced)
+        )
+        runCurrent()
+
+        assertTrue("Expected isSuccess to be true once draft is PUBLISHED", states.last().isSuccess)
 
         collectJob.cancel()
     }
@@ -418,7 +685,8 @@ class PublishingStudioNavigationTest {
         // Exactly one submission was launched
         coVerify(exactly = 1) { publishArtifactUseCase(draftId) }
         assertFalse("Expected isPublishing to be false after completion", states.last().isPublishing)
-        assertTrue("Expected isSuccess to be true", states.last().isSuccess)
+        assertTrue("Expected isSubmitted to be true", states.last().isSubmitted)
+        assertFalse("Expected isSuccess to be false upon UPLOAD_STARTED", states.last().isSuccess)
 
         collectJob.cancel()
     }

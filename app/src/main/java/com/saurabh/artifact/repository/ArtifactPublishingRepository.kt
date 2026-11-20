@@ -308,9 +308,53 @@ class ArtifactPublishingRepository @Inject constructor(
     }
 
     suspend fun preparePublish(draftId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        val draft = try {
+            draftRepository.get().getDraft(draftId).getOrNull()
+        } catch (_: Exception) {
+            null
+        }
+        if (draft != null) {
+            preparePublish(draft)
+        } else {
+            preparePublishInternal(draftId, null, emptyList(), null)
+        }
+    }
+
+    suspend fun preparePublish(draft: ArtifactDraftEntity): Result<Unit> = withContext(Dispatchers.IO) {
+        val effectiveDraftEmotions = if (draft.emotions.isNotEmpty()) {
+            draft.emotions
+        } else if (draft.emotion != null) {
+            listOf(draft.emotion)
+        } else {
+            emptyList()
+        }
+        val emotionLabels = effectiveDraftEmotions.map { it.label }
+        val title = draft.title ?: "Untitled Artifact"
+        val transcriptDigest = com.saurabh.artifact.security.UploadGuard.computeTranscriptDigest(
+            draft.frozenTranscriptJson?.toUnsecureString()
+        ).takeIf { it.isNotBlank() }
+        preparePublishInternal(draft.id, title, emotionLabels, transcriptDigest)
+    }
+
+    private suspend fun preparePublishInternal(
+        draftId: String,
+        title: String?,
+        emotions: List<String>,
+        transcriptDigest: String? = null
+    ): Result<Unit> = withContext(Dispatchers.IO) {
         return@withContext try {
             diagnosticLogger.debug(DiagnosticCategory.FIRESTORE, "PREPARE_PUBLISH_CALLABLE_START", mapOf(LogKeys.DRAFT_ID to draftId))
-            val data = mapOf("draftId" to draftId)
+            val data = mutableMapOf<String, Any>("draftId" to draftId)
+            if (title != null) {
+                data["title"] = title
+            }
+            if (emotions.isNotEmpty()) {
+                data["emotions"] = emotions
+                data["metadataDigest"] = com.saurabh.artifact.security.UploadGuard.computeMetadataDigest(title, emotions)
+            }
+            if (!transcriptDigest.isNullOrBlank()) {
+                data["transcriptDigest"] = transcriptDigest
+            }
             val result = functions.getHttpsCallable("preparePublish").call(data).await()
             val rawData = result.data
             diagnosticLogger.info(

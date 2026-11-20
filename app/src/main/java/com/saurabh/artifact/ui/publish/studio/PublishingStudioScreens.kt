@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -79,9 +80,12 @@ fun PublishingStudioScreen(
         viewModel.loadDraft(draftId)
     }
 
-    LaunchedEffect(sessionState.isSuccess) {
-        if (sessionState.isSuccess) {
-            logger.info(DiagnosticCategory.PUBLISH, "STUDIO_SUCCESS_NAVIGATE")
+    var hasNavigatedBySubmission by rememberSaveable(draftId) { mutableStateOf(false) }
+
+    LaunchedEffect(sessionState.isSubmitted) {
+        if (sessionState.isSubmitted && !hasNavigatedBySubmission) {
+            hasNavigatedBySubmission = true
+            logger.info(DiagnosticCategory.PUBLISH, "STUDIO_SUBMISSION_NAVIGATE")
             onFinish()
         }
     }
@@ -1228,32 +1232,12 @@ fun StudioPublishingStep(
                 fontWeight = FontWeight.Bold
             )
             Spacer(Modifier.height(8.dp))
-
-            if (state.isQueuedOffline) {
-                Surface(
-                    shape = CardShape,
-                    color = ArtifactTheme.colors.surfaceHearth,
-                    border = BorderStroke(1.dp, Obsidian700),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = Spacing.Large)
-                ) {
-                    Text(
-                        text = "You're offline. Your artifact has been safely encrypted and queued to upload automatically when you reconnect.",
-                        style = ArtifactTheme.typography.bodyMedium,
-                        textAlign = TextAlign.Center,
-                        color = ArtifactTheme.colors.onSurfaceMuted,
-                        modifier = Modifier.padding(Spacing.Large)
-                    )
-                }
-            } else {
-                Text(
-                    text = "Your reflection has been safely shared with the community.",
-                    style = ArtifactTheme.typography.bodyMedium,
-                    textAlign = TextAlign.Center,
-                    color = ArtifactTheme.colors.onSurfaceMuted
-                )
-            }
+            Text(
+                text = "Your reflection has been safely shared with the community.",
+                style = ArtifactTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center,
+                color = ArtifactTheme.colors.onSurfaceMuted
+            )
 
             Spacer(Modifier.height(32.dp))
             Button(
@@ -1294,6 +1278,36 @@ fun StudioPublishingStep(
                 color = ArtifactTheme.colors.onSurfaceMuted,
                 textAlign = TextAlign.Center
             )
+        } else if (state.isQueuedOffline) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(56.dp),
+                color = ArtifactTheme.colors.goldAura,
+                strokeWidth = 3.dp
+            )
+            Spacer(Modifier.height(24.dp))
+            Text(
+                text = "Queued for upload",
+                style = ArtifactTheme.typography.titleMedium,
+                color = ArtifactTheme.colors.onSurfaceMain,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(Modifier.height(8.dp))
+            Surface(
+                shape = CardShape,
+                color = ArtifactTheme.colors.surfaceHearth,
+                border = BorderStroke(1.dp, Obsidian700),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = Spacing.Large)
+            ) {
+                Text(
+                    text = "You're offline. Your artifact has been safely encrypted and queued to upload automatically when you reconnect.",
+                    style = ArtifactTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center,
+                    color = ArtifactTheme.colors.onSurfaceMuted,
+                    modifier = Modifier.padding(Spacing.Large)
+                )
+            }
         } else {
             CircularProgressIndicator(
                 modifier = Modifier.size(56.dp),

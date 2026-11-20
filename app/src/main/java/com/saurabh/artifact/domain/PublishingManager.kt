@@ -146,7 +146,7 @@ class PublishingManager @Inject constructor(
 
             // 3. Prepare Publication Reservation (Server-Authoritative)
             diagnosticLogger.debug(DiagnosticCategory.FIRESTORE, "PUBLISH_STEP_3_PREPARE", mapOf(LogKeys.DRAFT_ID to draftId))
-            artifactRepository.preparePublish(draftId).getOrThrow()
+            artifactRepository.preparePublish(draft).getOrThrow()
 
             // Reload draft to obtain updated server-authoritative fields like episodeNumber
             val updatedDraft = draftRepository.getDraft(draftId).getOrNull() ?: draft

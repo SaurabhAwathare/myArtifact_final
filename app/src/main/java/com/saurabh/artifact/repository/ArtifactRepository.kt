@@ -941,6 +941,9 @@ class ArtifactRepository @Inject constructor(
     suspend fun preparePublish(draftId: String): Result<Unit> =
         publishingRepository.get().preparePublish(draftId)
 
+    suspend fun preparePublish(draft: ArtifactDraftEntity): Result<Unit> =
+        publishingRepository.get().preparePublish(draft)
+
     suspend fun finalizePublish(
         draft: ArtifactDraftEntity
     ): Result<String> = publishingRepository.get().finalizePublish(draft)

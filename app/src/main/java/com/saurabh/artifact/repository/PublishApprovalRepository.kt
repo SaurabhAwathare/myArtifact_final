@@ -233,11 +233,23 @@ class PublishApprovalRepository @Inject constructor(
 
             val timestamp = System.currentTimeMillis()
             val fingerprint = uploadGuard.getDeviceFingerprint()
+            val currentEmotions = if (draft.emotions.isNotEmpty()) {
+                draft.emotions.map { it.name }
+            } else if (draft.emotion != null) {
+                listOf(draft.emotion.name)
+            } else {
+                emptyList()
+            }
+            val transcriptDigest = uploadGuard.computeTranscriptDigest(sanitizedTranscript)
             val token = uploadGuard.generateApprovalToken(
                 userId = userId,
                 draftId = draftId,
-                checksum = currentChecksum,
-                timestamp = timestamp
+                title = draft.title,
+                emotions = currentEmotions,
+                transcriptDigest = transcriptDigest,
+                audioChecksum = currentChecksum,
+                timestamp = timestamp,
+                deviceId = fingerprint
             )
 
             Log.d("PublishApprovalRepo", "Approval token generation success.")

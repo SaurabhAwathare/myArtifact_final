@@ -1,5 +1,6 @@
 import * as functions from "firebase-functions/v1";
 import * as admin from "firebase-admin";
+import * as crypto from "crypto";
 import {FieldValue} from "firebase-admin/firestore";
 import {withIdempotency} from "./util/idempotency";
 import {logger} from "./util/logger";
@@ -3367,10 +3368,71 @@ export const reserveEpisode = functions.https.onCall(async (data, context) => {
   }
 });
 
+export const VALID_EMOTIONS = new Set([
+  "Happy", "Sad", "Angry", "Lonely", "Hopeful", "Calm", "Anxious",
+  "Confused", "Grateful", "Overwhelmed", "Motivated", "Mixed", "Unclear", "Neutral", "Untitled",
+  "HAPPY", "SAD", "ANGRY", "LONELY", "HOPEFUL", "CALM", "ANXIOUS",
+  "CONFUSED", "GRATEFUL", "OVERWHELMED", "MOTIVATED", "MIXED", "UNCLEAR", "NEUTRAL"
+]);
+
+/**
+ * Canonical metadata serialization and digest computation.
+ * Formats title (trimmed) and emotions (uppercase, ordered, comma-separated)
+ * to produce an identical digest on client and backend while preserving primary emotion.
+ */
+export function computeMetadataDigest(title: string, emotions: string[]): string {
+  const normTitle = (title || "").trim();
+  const normEmotions = (emotions || [])
+    .map((e) => (typeof e === "string" ? e.trim().toUpperCase() : ""))
+    .filter((e) => e.length > 0)
+    .join(",");
+  const raw = `title=${normTitle};emotions=${normEmotions}`;
+  return crypto.createHash("sha256").update(raw, "utf8").digest("hex");
+}
+
+/**
+ * Canonical transcript digest computation from segments.
+ * Serializes segments as "${startMs}:${endMs}:${trimmedText}" joined by newlines.
+ */
+export function computeTranscriptDigest(transcript: string | any[]): string {
+  if (!transcript) return "";
+  let segments: any[] = [];
+  if (typeof transcript === "string") {
+    const trimmed = transcript.trim();
+    if (trimmed.length === 0) return "";
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        segments = parsed;
+      } else {
+        return crypto.createHash("sha256").update(trimmed, "utf8").digest("hex");
+      }
+    } catch {
+      return crypto.createHash("sha256").update(trimmed, "utf8").digest("hex");
+    }
+  } else if (Array.isArray(transcript)) {
+    segments = transcript;
+  } else {
+    return "";
+  }
+
+  if (segments.length === 0) return "";
+
+  const canonical = segments.map((seg) => {
+    const startMs = typeof seg.startMs === "number" ? Math.floor(seg.startMs) : (parseInt(seg.startMs, 10) || 0);
+    const endMs = typeof seg.endMs === "number" ? Math.floor(seg.endMs) : (parseInt(seg.endMs, 10) || 0);
+    const text = typeof seg.text === "string" ? seg.text.trim() : "";
+    return `${startMs}:${endMs}:${text}`;
+  }).join("\n");
+
+  return crypto.createHash("sha256").update(canonical, "utf8").digest("hex");
+}
+
 /**
  * Authoritatively creates a private publication reservation document under
  * /users/{uid}/private/published_artifacts/artifacts/{draftId}
  * before audio storage upload to satisfy storage.rules isArtifactOwner() check.
+ * Binds approved title, emotions, and metadata digest to prevent post-approval mutation.
  */
 export const preparePublish = functions.https.onCall(async (data, context) => {
   await assertActiveSession(context);
@@ -3381,6 +3443,48 @@ export const preparePublish = functions.https.onCall(async (data, context) => {
     throw new functions.https.HttpsError("invalid-argument", "Valid draftId is required.");
   }
   const cleanDraftId = draftId.trim();
+
+  // Validate title and emotions if provided
+  let cleanTitle = typeof data?.title === "string" ? data.title.trim() : "";
+  if (cleanTitle.length > 70) {
+    throw new functions.https.HttpsError("invalid-argument", "Title must not exceed 70 characters.");
+  }
+
+  let cleanEmotions: string[] = [];
+  if (Array.isArray(data?.emotions)) {
+    cleanEmotions = data.emotions
+      .filter((e: any) => typeof e === "string" && e.trim().length > 0)
+      .map((e: string) => e.trim());
+  } else if (typeof data?.emotion === "string" && data.emotion.trim().length > 0) {
+    cleanEmotions = [data.emotion.trim()];
+  }
+
+  let cleanTranscriptDigest: string | null = null;
+  if (typeof data?.transcriptDigest === "string") {
+    const trimmed = data.transcriptDigest.trim();
+    if (trimmed.length > 0) {
+      cleanTranscriptDigest = trimmed;
+    }
+  }
+
+  let metadataDigest: string | null = null;
+  if (cleanTitle.length > 0 || cleanEmotions.length > 0) {
+    if (cleanTitle.length === 0) {
+      throw new functions.https.HttpsError("invalid-argument", "Valid title is required.");
+    }
+    if (cleanEmotions.length === 0) {
+      throw new functions.https.HttpsError("invalid-argument", "At least 1 emotion is required.");
+    }
+    if (cleanEmotions.length > 3) {
+      throw new functions.https.HttpsError("invalid-argument", "Maximum 3 emotions allowed.");
+    }
+    for (const emo of cleanEmotions) {
+      if (!VALID_EMOTIONS.has(emo)) {
+        throw new functions.https.HttpsError("invalid-argument", `Invalid emotion value: ${emo}`);
+      }
+    }
+    metadataDigest = computeMetadataDigest(cleanTitle, cleanEmotions);
+  }
 
   const db = admin.firestore();
 
@@ -3410,6 +3514,53 @@ export const preparePublish = functions.https.onCall(async (data, context) => {
       if (reservationDocData && typeof reservationDocData.episodeNumber === "number") {
         episodeNumber = reservationDocData.episodeNumber;
         logger.info(`[PREPARE_PUBLISH] Reservation re-used for draft ${cleanDraftId} under user ${uid}, episode ${episodeNumber}`);
+
+        // IMMUTABILITY ENFORCEMENT (Defect D3):
+        // If reservation already has an approved metadata snapshot, reject any conflicting metadata
+        if (reservationDocData.metadataDigest) {
+          if (cleanTitle.length > 0 && cleanTitle !== reservationDocData.approvedTitle) {
+            throw new functions.https.HttpsError(
+              "failed-precondition",
+              "Publication reservation already exists with different approved title."
+            );
+          }
+          if (cleanEmotions.length > 0) {
+            const approvedEmos = Array.isArray(reservationDocData.approvedEmotions) ? reservationDocData.approvedEmotions : [];
+            const emosMatch = cleanEmotions.length === approvedEmos.length &&
+              cleanEmotions.every((e, i) => e === approvedEmos[i]);
+            if (!emosMatch) {
+              throw new functions.https.HttpsError(
+                "failed-precondition",
+                "Publication reservation already exists with different approved emotions."
+              );
+            }
+          }
+          if (metadataDigest && metadataDigest !== reservationDocData.metadataDigest) {
+            throw new functions.https.HttpsError(
+              "failed-precondition",
+              "Publication reservation already exists with different approved metadata digest."
+            );
+          }
+          if (cleanTranscriptDigest !== null &&
+              reservationDocData.transcriptDigest !== undefined &&
+              cleanTranscriptDigest !== reservationDocData.transcriptDigest) {
+            throw new functions.https.HttpsError(
+              "failed-precondition",
+              "Publication reservation already exists with different approved transcript digest."
+            );
+          }
+          // Idempotent retry: Do not mutate existing approved reservation
+        } else {
+          if (cleanTitle.length > 0 && cleanEmotions.length > 0 && metadataDigest) {
+            transaction.set(reservationRef, {
+              approvedTitle: cleanTitle,
+              approvedEmotions: cleanEmotions,
+              metadataDigest: metadataDigest,
+              ...(cleanTranscriptDigest ? { transcriptDigest: cleanTranscriptDigest } : {}),
+              updatedAt: FieldValue.serverTimestamp(),
+            }, { merge: true });
+          }
+        }
       } else {
         const sequenceDoc = await transaction.get(sequenceRef);
         const sequenceData = sequenceDoc.exists ? sequenceDoc.data() : null;
@@ -3422,13 +3573,22 @@ export const preparePublish = functions.https.onCall(async (data, context) => {
           updatedAt: FieldValue.serverTimestamp(),
         }, { merge: true });
 
-        const reservationData = {
+        const reservationData: any = {
           draftId: cleanDraftId,
           episodeNumber: episodeNumber,
           allocatedAt: FieldValue.serverTimestamp(),
           createdAt: reservationDocData && reservationDocData.createdAt ? reservationDocData.createdAt : FieldValue.serverTimestamp(),
           identityResetVersion: identityResetVersion,
         };
+
+        if (cleanTitle.length > 0 && cleanEmotions.length > 0 && metadataDigest) {
+          reservationData.approvedTitle = cleanTitle;
+          reservationData.approvedEmotions = cleanEmotions;
+          reservationData.metadataDigest = metadataDigest;
+          if (cleanTranscriptDigest) {
+            reservationData.transcriptDigest = cleanTranscriptDigest;
+          }
+        }
 
         transaction.set(reservationRef, reservationData, { merge: true });
         logger.info(`[PREPARE_PUBLISH] Reservation & Episode ${episodeNumber} allocated for draft ${cleanDraftId} under user ${uid}`);
@@ -3491,13 +3651,6 @@ export const finalizePublish = functions.https.onCall(async (data, context) => {
   if (emotions.length > 3) {
     throw new functions.https.HttpsError("invalid-argument", "Maximum 3 emotions allowed.");
   }
-
-  const VALID_EMOTIONS = new Set([
-    "Happy", "Sad", "Angry", "Lonely", "Hopeful", "Calm", "Anxious",
-    "Confused", "Grateful", "Overwhelmed", "Motivated", "Mixed", "Unclear", "Neutral", "Untitled",
-    "HAPPY", "SAD", "ANGRY", "LONELY", "HOPEFUL", "CALM", "ANXIOUS",
-    "CONFUSED", "GRATEFUL", "OVERWHELMED", "MOTIVATED", "MIXED", "UNCLEAR", "NEUTRAL"
-  ]);
 
   for (const emo of emotions) {
     if (!VALID_EMOTIONS.has(emo)) {
@@ -3564,22 +3717,81 @@ export const finalizePublish = functions.https.onCall(async (data, context) => {
       `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encodedAudioPath}?alt=media&token=${audioDownloadToken}` :
       `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encodedAudioPath}?alt=media`;
 
-    // Server-Authoritative Download URL Derivation for Transcript (if present in Storage)
+    const reservationRef = db.doc(`users/${uid}/private/published_artifacts/artifacts/${cleanDraftId}`);
+    const reservationSnap = await reservationRef.get();
+    if (!reservationSnap.exists) {
+      throw new functions.https.HttpsError("permission-denied", "No publication reservation found for this user.");
+    }
+    const preReservationData = reservationSnap.data() || {};
+
+    // Server-Authoritative Download URL Derivation and Integrity Verification for Transcript (Priority 3 & Defect D1)
     let serverTranscriptUrl: string | null = null;
     const transcriptPath = `transcripts/${cleanDraftId}.json`;
     const transcriptFile = bucket.file(transcriptPath);
     const [transcriptExists] = await transcriptFile.exists();
-    if (transcriptExists) {
+
+    const expectedTranscriptDigest = typeof preReservationData.transcriptDigest === "string" && preReservationData.transcriptDigest.trim().length > 0
+      ? preReservationData.transcriptDigest.trim()
+      : null;
+
+    if (expectedTranscriptDigest) {
+      if (!transcriptExists) {
+        throw new functions.https.HttpsError("failed-precondition", "Approved transcript missing from Storage.");
+      }
       const [tMetadata] = await transcriptFile.getMetadata();
+      const tSize = parseInt(tMetadata.size as string, 10) || 0;
+      if (tSize <= 0) {
+        throw new functions.https.HttpsError("invalid-argument", "Transcript object in Storage is empty.");
+      }
+      if (tSize > 5 * 1024 * 1024) {
+        throw new functions.https.HttpsError("invalid-argument", "Transcript object exceeds 5MB size limit.");
+      }
+
+      let rawText = "";
+      try {
+        const [tBuffer] = await transcriptFile.download();
+        rawText = tBuffer.toString("utf8");
+      } catch (err: any) {
+        logger.error(`[FINALIZE_PUBLISH] Error downloading transcript for draft ${cleanDraftId}:`, err);
+        throw new functions.https.HttpsError("internal", "Failed to retrieve transcript from Storage.");
+      }
+
+      let parsedSegments: any;
+      try {
+        parsedSegments = JSON.parse(rawText);
+      } catch (err) {
+        throw new functions.https.HttpsError("invalid-argument", "Malformed transcript JSON in Storage.");
+      }
+
+      if (!Array.isArray(parsedSegments)) {
+        throw new functions.https.HttpsError("invalid-argument", "Transcript content must be an array of segments.");
+      }
+
+      for (const seg of parsedSegments) {
+        if (!seg || typeof seg !== "object" || typeof seg.text !== "string") {
+          throw new functions.https.HttpsError("invalid-argument", "Malformed segment in transcript JSON.");
+        }
+      }
+
+      const calculatedTranscriptDigest = computeTranscriptDigest(parsedSegments);
+      if (calculatedTranscriptDigest !== expectedTranscriptDigest) {
+        logger.warn(`[FINALIZE_PUBLISH] Transcript digest mismatch for draft ${cleanDraftId}: expected=${expectedTranscriptDigest}, calculated=${calculatedTranscriptDigest}`);
+        throw new functions.https.HttpsError("failed-precondition", "Transcript digest does not match approved reservation snapshot.");
+      }
+
       const tDownloadToken = tMetadata.metadata?.firebaseStorageDownloadTokens;
       const encodedTranscriptPath = encodeURIComponent(transcriptPath);
       serverTranscriptUrl = tDownloadToken ?
         `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encodedTranscriptPath}?alt=media&token=${tDownloadToken}` :
         `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encodedTranscriptPath}?alt=media`;
+    } else {
+      if (transcriptExists) {
+        throw new functions.https.HttpsError("failed-precondition", "Unapproved transcript uploaded to Storage.");
+      }
+      serverTranscriptUrl = null;
     }
 
     return await db.runTransaction(async (transaction) => {
-      const reservationRef = db.doc(`users/${uid}/private/published_artifacts/artifacts/${cleanDraftId}`);
       const reservationDoc = await transaction.get(reservationRef);
       if (!reservationDoc.exists) {
         throw new functions.https.HttpsError("permission-denied", "No publication reservation found for this user.");
@@ -3610,6 +3822,42 @@ export const finalizePublish = functions.https.onCall(async (data, context) => {
         } else {
           throw new functions.https.HttpsError("failed-precondition", `Artifact ${cleanDraftId} exists in non-active state (${existingData.status}).`);
         }
+      }
+
+      // Check for authoritative approved metadata snapshot on reservation
+      const approvedTitle = reservationData.approvedTitle;
+      const approvedEmotions = reservationData.approvedEmotions;
+      const expectedDigest = reservationData.metadataDigest;
+
+      if (!expectedDigest || typeof approvedTitle !== "string" || !Array.isArray(approvedEmotions)) {
+        throw new functions.https.HttpsError(
+          "failed-precondition",
+          "Publication reservation missing approved metadata snapshot or is stale."
+        );
+      }
+
+      // Verify finalization payload against approved reference
+      const computedFinalizeDigest = computeMetadataDigest(title, emotions);
+      if (computedFinalizeDigest !== expectedDigest) {
+        if (title.trim() !== approvedTitle.trim()) {
+          throw new functions.https.HttpsError(
+            "failed-precondition",
+            "Publication title does not match approved reservation snapshot."
+          );
+        }
+        throw new functions.https.HttpsError(
+          "failed-precondition",
+          "Publication emotions do not match approved reservation snapshot."
+        );
+      }
+
+      // Explicit primary emotion check to guarantee order integrity (Priority 4 & Defect D4)
+      const approvedPrimary = approvedEmotions[0];
+      if (primaryEmotion !== approvedPrimary) {
+        throw new functions.https.HttpsError(
+          "failed-precondition",
+          "Publication primary emotion does not match approved reservation snapshot."
+        );
       }
 
       const userRef = db.doc(`users/${uid}`);
