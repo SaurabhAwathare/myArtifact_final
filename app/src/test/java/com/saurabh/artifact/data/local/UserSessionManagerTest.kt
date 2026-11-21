@@ -753,5 +753,139 @@ class UserSessionManagerTest {
         assertEquals(100L, profile.resonanceInCount)
         assertEquals(50L, profile.resonanceOutCount)
     }
+
+    @Test
+    fun `updateAvatarConfig updates active user profile when expectedUid matches`() = runTest {
+        val (manager, _) = createManager("test_avatar_update_success.preferences_pb")
+        val user = com.saurabh.artifact.model.User(id = "user_A", anonymousId = "anon_A")
+        manager.syncFromRemote(user)
+
+        val avatar = com.saurabh.artifact.model.avatar.AvatarConfiguration(
+            faceShape = com.saurabh.artifact.model.avatar.AvatarAssetIds.FACE_OVAL_01,
+            hairStyle = com.saurabh.artifact.model.avatar.AvatarAssetIds.HAIR_BOB_01
+        )
+        manager.updateAvatarConfig(avatar, expectedUid = "user_A")
+
+        val profile = manager.userProfile.first()
+        org.junit.Assert.assertNotNull(profile.avatarConfig)
+        assertEquals(com.saurabh.artifact.model.avatar.AvatarAssetIds.FACE_OVAL_01, profile.avatarConfig?.faceShape)
+        assertEquals(com.saurabh.artifact.model.avatar.AvatarAssetIds.HAIR_BOB_01, profile.avatarConfig?.hairStyle)
+    }
+
+    @Test
+    fun `updateAvatarConfig rejects modification when expectedUid does not match`() = runTest {
+        val (manager, _) = createManager("test_avatar_update_mismatch.preferences_pb")
+        val user = com.saurabh.artifact.model.User(id = "user_A", anonymousId = "anon_A")
+        manager.syncFromRemote(user)
+
+        val avatar = com.saurabh.artifact.model.avatar.AvatarConfiguration(
+            faceShape = com.saurabh.artifact.model.avatar.AvatarAssetIds.FACE_OVAL_01
+        )
+        // Attempt update with mismatched UID
+        manager.updateAvatarConfig(avatar, expectedUid = "user_B")
+
+        val profile = manager.userProfile.first()
+        org.junit.Assert.assertNull(profile.avatarConfig)
+    }
+
+    @Test
+    fun `updateAvatarConfig rejects modification when owningUid is null and expectedUid is non-null`() = runTest {
+        val (manager, _) = createManager("test_avatar_update_null_owner.preferences_pb")
+        // owningUid is null
+        val avatar = com.saurabh.artifact.model.avatar.AvatarConfiguration(
+            faceShape = com.saurabh.artifact.model.avatar.AvatarAssetIds.FACE_OVAL_01
+        )
+        manager.updateAvatarConfig(avatar, expectedUid = "user_A")
+
+        val profile = manager.userProfile.first()
+        org.junit.Assert.assertNull(profile.avatarConfig)
+    }
+
+    @Test
+    fun `updateAvatarConfig rejects modification when owningUid is non-null and expectedUid is null`() = runTest {
+        val (manager, _) = createManager("test_avatar_update_expected_null.preferences_pb")
+        val user = com.saurabh.artifact.model.User(id = "user_A", anonymousId = "anon_A")
+        manager.syncFromRemote(user)
+
+        val avatar = com.saurabh.artifact.model.avatar.AvatarConfiguration(
+            faceShape = com.saurabh.artifact.model.avatar.AvatarAssetIds.FACE_OVAL_01
+        )
+        manager.updateAvatarConfig(avatar, expectedUid = null)
+
+        val profile = manager.userProfile.first()
+        org.junit.Assert.assertNull(profile.avatarConfig)
+    }
+
+    @Test
+    fun `logout clear purges avatar configuration`() = runTest {
+        val (manager, _) = createManager("test_avatar_logout_clear.preferences_pb")
+        val user = com.saurabh.artifact.model.User(
+            id = "user_A",
+            anonymousId = "anon_A",
+            avatarConfig = com.saurabh.artifact.model.avatar.AvatarConfiguration()
+        )
+        manager.syncFromRemote(user)
+        org.junit.Assert.assertNotNull(manager.userProfile.first().avatarConfig)
+
+        manager.clear()
+
+        val afterLogoutProfile = manager.userProfile.first()
+        org.junit.Assert.assertNull(afterLogoutProfile.avatarConfig)
+    }
+
+    @Test
+    fun `clearIdentityCache purges avatar configuration for matching owner`() = runTest {
+        val (manager, _) = createManager("test_avatar_identity_cache_clear.preferences_pb")
+        val user = com.saurabh.artifact.model.User(
+            id = "user_A",
+            anonymousId = "anon_A",
+            avatarConfig = com.saurabh.artifact.model.avatar.AvatarConfiguration()
+        )
+        manager.syncFromRemote(user)
+        org.junit.Assert.assertNotNull(manager.userProfile.first().avatarConfig)
+
+        // Clear for matching owner
+        manager.clearIdentityCache("user_A")
+        org.junit.Assert.assertNull(manager.userProfile.first().avatarConfig)
+    }
+
+    @Test
+    fun `avatar updates leave all existing session preferences correctly managed`() = runTest {
+        val (manager, _) = createManager("test_avatar_operational_keys_preserved.preferences_pb")
+        val user = com.saurabh.artifact.model.User(
+            id = "user_A",
+            anonymousId = "anon_A",
+            anonymousName = "Explorer",
+            anonymousSigil = "▲",
+            sigilSeed = "seed_A",
+            resonanceInCount = 42L,
+            resonanceOutCount = 10L
+        )
+        manager.syncFromRemote(user)
+        manager.setLocalSessionId("sess_99")
+        manager.setActiveDraftId("draft_99")
+        manager.setActivePromptId("prompt_99")
+        manager.setLoggingOut(false)
+
+        val avatar = com.saurabh.artifact.model.avatar.AvatarConfiguration(
+            faceShape = com.saurabh.artifact.model.avatar.AvatarAssetIds.FACE_OVAL_01
+        )
+        manager.updateAvatarConfig(avatar, expectedUid = "user_A")
+
+        // Operational keys remain intact
+        assertEquals("sess_99", manager.localSessionId.first())
+        assertEquals("draft_99", manager.activeDraftId.first())
+        assertEquals("prompt_99", manager.activePromptId.first())
+        assertEquals(false, manager.isLoggingOut.first())
+
+        // Identity keys remain intact
+        val profile = manager.userProfile.first()
+        assertEquals("anon_A", profile.anonymousId)
+        assertEquals("Explorer", profile.username)
+        assertEquals("▲", profile.sigil)
+        assertEquals(42L, profile.resonanceInCount)
+        assertEquals(10L, profile.resonanceOutCount)
+        assertEquals(com.saurabh.artifact.model.avatar.AvatarAssetIds.FACE_OVAL_01, profile.avatarConfig?.faceShape)
+    }
 }
 

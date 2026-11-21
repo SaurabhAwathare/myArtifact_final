@@ -150,6 +150,11 @@ class UserProfileManager @Inject constructor(
     val userProfile: Flow<com.saurabh.artifact.model.UserProfile> = sessionManager.userProfile
 
     /**
+     * SSOT flow for Avatar Config.
+     */
+    val activeAvatarConfig: Flow<com.saurabh.artifact.model.avatar.AvatarConfiguration?> = sessionManager.userProfile.map { it.avatarConfig }
+
+    /**
      * SSOT flow for Sigil Config.
      */
     val activeSigilConfig: Flow<com.saurabh.artifact.model.SigilConfig> = sessionManager.userProfile.map { it.sigilConfig }
@@ -340,5 +345,18 @@ class UserProfileManager @Inject constructor(
 
     suspend fun isUsernameAvailable(username: String): Result<Boolean> {
         return userRepository.isUsernameAvailable(username)
+    }
+
+    /**
+     * Updates the user's avatar configuration using offline-first persistence.
+     * Enforces expected authenticated UID and coordinates Firestore write,
+     * DataStore, and Room updates via UserRepository and UserSessionManager.
+     */
+    suspend fun updateAvatarConfig(config: com.saurabh.artifact.model.avatar.AvatarConfiguration?): Result<Unit> {
+        val userId = authRepository.currentUserId
+        if (userId.isEmpty()) {
+            return Result.failure(com.saurabh.artifact.model.AppError.Unauthenticated("No authenticated user"))
+        }
+        return userRepository.updateAvatarConfig(userId, config, sessionManager)
     }
 }

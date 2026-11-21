@@ -19,6 +19,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.saurabh.artifact.model.User
+import com.saurabh.artifact.ui.components.ArtifactAvatar
 import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.ui.components.ArtifactSigil
 import com.saurabh.artifact.model.SigilConfig
@@ -42,6 +43,7 @@ fun ProfileHeader(
     onResonateClick: () -> Unit,
     onEditClick: () -> Unit,
     modifier: Modifier = Modifier,
+    onCustomizeAvatar: () -> Unit = {},
     onResonatorsClick: () -> Unit = {},
     onResonatingClick: () -> Unit = {},
     isLoading: Boolean = false,
@@ -85,6 +87,12 @@ fun ProfileHeader(
                         height = 64.dp,
                         width = Modifier.size(64.dp),
                         shape = CircleShape
+                    )
+                } else if (isSelf && user.avatarConfig != null) {
+                    ArtifactAvatar(
+                        config = user.avatarConfig,
+                        size = 64.dp,
+                        contentDescription = "User avatar"
                     )
                 } else {
                     val displayConfig = when {
@@ -161,6 +169,28 @@ fun ProfileHeader(
                     ) {
                         Text(
                             text = if (isResonating) "Following" else "Follow",
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                } else {
+                    Spacer(modifier = Modifier.height(Spacing.Small))
+                    Button(
+                        onClick = onCustomizeAvatar,
+                        enabled = !isLoading && user != null,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = ArtifactTheme.colors.surfaceHearth,
+                            contentColor = ArtifactTheme.colors.onSurfaceMain,
+                            disabledContainerColor = ArtifactTheme.colors.surfaceHearth.copy(alpha = 0.5f),
+                            disabledContentColor = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.5f)
+                        ),
+                        border = BorderStroke(1.dp, ArtifactTheme.colors.waveformInactive),
+                        shape = MaterialTheme.shapes.medium,
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                        modifier = Modifier.defaultMinSize(minWidth = 88.dp, minHeight = 48.dp)
+                    ) {
+                        Text(
+                            text = "Customize Avatar",
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.SemiBold
                         )

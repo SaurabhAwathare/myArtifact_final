@@ -11,6 +11,9 @@ import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.FieldPath
 import com.google.firebase.firestore.Source
+import com.saurabh.artifact.data.local.UserSessionManager
+import com.saurabh.artifact.model.avatar.AvatarConfiguration
+import com.saurabh.artifact.model.avatar.DefaultAvatarAssetValidator
 import kotlinx.coroutines.Job
 import com.saurabh.artifact.model.AppError
 import com.saurabh.artifact.model.User
@@ -870,7 +873,8 @@ open class UserRepository @Inject constructor(
             sigilSeed = user.sigilSeed,
             sigilColor = user.sigilColor,
             sigilConfigJson = Json.encodeToString(user.sigilConfig),
-            cachedProgressionCount = cachedProgressionCount
+            cachedProgressionCount = cachedProgressionCount,
+            avatarConfigJson = user.avatarConfig?.let { Json.encodeToString(it) }
         )
     }
 
@@ -926,6 +930,14 @@ open class UserRepository @Inject constructor(
                 kotlinx.serialization.json.Json.decodeFromString(local.sigilConfigJson)
             } catch (_: Exception) {
                 SigilConfig(seed = local.sigilSeed)
+            },
+            avatarConfig = local.avatarConfigJson?.let {
+                try {
+                    kotlinx.serialization.json.Json.decodeFromString<AvatarConfiguration>(it)
+                        .withSafeFallbacks(DefaultAvatarAssetValidator)
+                } catch (_: Exception) {
+                    null
+                }
             }
         )
     }
@@ -1683,6 +1695,99 @@ open class UserRepository @Inject constructor(
             Result.success(Unit)
         } catch (e: Exception) {
             diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "SIGIL_CONFIG_UPDATE_FAILED", mapOf(LogKeys.USER_ID to userId), e)
+            Result.failure(AppError.from(e))
+        }
+    }
+
+    /**
+     * Updates the user's avatar configuration using offline-first persistence:
+     * 1. Validates the expected authenticated UID.
+     * 2. Sanitizes the avatar configuration using the canonical asset validator.
+     * 3. Promptly issues the Firestore write to the local mutation queue without awaiting remote acknowledgement.
+     * 4. Updates DataStore through UserSessionManager if provided.
+     * 5. Updates Room cache while strictly preserving progression counters.
+     */
+    suspend fun updateAvatarConfig(
+        userId: String,
+        config: AvatarConfiguration?,
+        sessionManager: UserSessionManager? = null
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val targetUserId = userId.trim()
+            val currentUid = auth.currentUser?.uid ?: authRepository.get().currentUserId
+            if (targetUserId.isBlank() || targetUserId != currentUid) {
+                diagnosticLogger.warn(
+                    DiagnosticCategory.AUTH,
+                    "AVATAR_UPDATE_UNAUTHORIZED",
+                    mapOf("targetUserId" to targetUserId, "currentUid" to currentUid)
+                )
+                return@withContext Result.failure(AppError.Unauthenticated("Account ownership mismatch"))
+            }
+
+            val sanitized = config?.withSafeFallbacks(DefaultAvatarAssetValidator)
+
+            // 1. Issue Firestore write promptly to local write queue without awaiting remote acknowledgement
+            val userRef = usersCollection.document(targetUserId)
+            val updateData: Map<String, Any> = if (sanitized != null) {
+                mapOf(
+                    "avatarConfig" to mapOf(
+                        "version" to sanitized.version,
+                        "faceShape" to sanitized.faceShape,
+                        "skinTone" to sanitized.skinTone,
+                        "hairStyle" to sanitized.hairStyle,
+                        "hairColor" to sanitized.hairColor,
+                        "eyeStyle" to sanitized.eyeStyle,
+                        "eyebrowStyle" to sanitized.eyebrowStyle,
+                        "noseStyle" to sanitized.noseStyle,
+                        "mouthStyle" to sanitized.mouthStyle,
+                        "accessory" to sanitized.accessory,
+                        "background" to sanitized.background
+                    )
+                )
+            } else {
+                mapOf("avatarConfig" to FieldValue.delete())
+            }
+
+            try {
+                userRef.set(updateData, SetOptions.merge())
+                    .addOnSuccessListener {
+                        diagnosticLogger.info(
+                            DiagnosticCategory.FIRESTORE,
+                            "AVATAR_REMOTE_SYNC_ACKNOWLEDGED",
+                            mapOf(LogKeys.USER_ID to targetUserId)
+                        )
+                    }
+                    .addOnFailureListener { e ->
+                        diagnosticLogger.error(
+                            DiagnosticCategory.FIRESTORE,
+                            "AVATAR_REMOTE_SYNC_FAILED",
+                            mapOf(LogKeys.USER_ID to targetUserId),
+                            e
+                        )
+                    }
+            } catch (e: Exception) {
+                diagnosticLogger.error(
+                    DiagnosticCategory.FIRESTORE,
+                    "AVATAR_LOCAL_WRITE_FAILED",
+                    mapOf(LogKeys.USER_ID to targetUserId),
+                    e
+                )
+                return@withContext Result.failure(AppError.from(e))
+            }
+
+            // 2. Update DataStore through sessionManager
+            sessionManager?.updateAvatarConfig(sanitized, expectedUid = targetUserId)
+
+            // 3. Update Room cache preserving progression counters
+            val cached = getCachedProfile(targetUserId)
+            val updatedUser = cached?.copy(avatarConfig = sanitized)
+                ?: User(id = targetUserId, anonymousId = targetUserId, avatarConfig = sanitized)
+            insertProfilePreservingProgression(updatedUser)
+
+            diagnosticLogger.info(DiagnosticCategory.AUTH, "AVATAR_CONFIG_SAVED_LOCALLY", mapOf(LogKeys.USER_ID to targetUserId))
+            Result.success(Unit)
+        } catch (e: Exception) {
+            diagnosticLogger.error(DiagnosticCategory.AUTH, "AVATAR_CONFIG_UPDATE_FAILED", mapOf(LogKeys.USER_ID to userId), e)
             Result.failure(AppError.from(e))
         }
     }

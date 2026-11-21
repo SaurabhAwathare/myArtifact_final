@@ -34,6 +34,7 @@ class UserSessionManager @Inject constructor(
         val ACTIVE_PROMPT_ID = stringPreferencesKey("active_prompt_id")
         val IS_LOGGING_OUT = booleanPreferencesKey("is_logging_out")
         val LOCAL_SESSION_ID = stringPreferencesKey("local_session_id")
+        val AVATAR_CONFIG_JSON = stringPreferencesKey("avatar_config_json")
     }
 
     internal val rawPreferences: Flow<Preferences> = dataStore.data
@@ -97,6 +98,16 @@ class UserSessionManager @Inject constructor(
                     com.saurabh.artifact.model.SigilConfig(seed = seed)
                 }
             } ?: com.saurabh.artifact.model.SigilConfig(seed = seed)
+
+            val avatarJson = preferences[PreferencesKeys.AVATAR_CONFIG_JSON]
+            val avatarConfig = avatarJson?.let {
+                try {
+                    Json.decodeFromString<com.saurabh.artifact.model.avatar.AvatarConfiguration>(it)
+                        .withSafeFallbacks(com.saurabh.artifact.model.avatar.DefaultAvatarAssetValidator)
+                } catch (_: Exception) {
+                    null
+                }
+            }
             
             UserProfile(
                 anonymousId = id, 
@@ -108,6 +119,7 @@ class UserSessionManager @Inject constructor(
                 isAnonymous = isAnonymous,
                 resonanceInCount = resonanceIn,
                 resonanceOutCount = resonanceOut,
+                avatarConfig = avatarConfig,
             )
         }
 
@@ -187,6 +199,32 @@ class UserSessionManager @Inject constructor(
     }
 
     /**
+     * Updates the user's avatar configuration.
+     * Guaranteed not to modify DataStore if:
+     * - OWNING_UID is non-null and expectedUid does not match OWNING_UID (including null expectedUid)
+     * - OWNING_UID is null and expectedUid is non-null
+     * Does not establish or transfer cache ownership.
+     */
+    suspend fun updateAvatarConfig(
+        config: com.saurabh.artifact.model.avatar.AvatarConfiguration?,
+        expectedUid: String? = null
+    ) {
+        if (expectedUid != null && expectedUid.isBlank()) return
+        dataStore.edit { preferences ->
+            val currentOwner = preferences[PreferencesKeys.OWNING_UID]?.takeIf { it.isNotBlank() }
+            if (currentOwner != expectedUid) {
+                return@edit
+            }
+            if (config == null) {
+                preferences.remove(PreferencesKeys.AVATAR_CONFIG_JSON)
+            } else {
+                val safe = config.withSafeFallbacks(com.saurabh.artifact.model.avatar.DefaultAvatarAssetValidator)
+                preferences[PreferencesKeys.AVATAR_CONFIG_JSON] = Json.encodeToString(safe)
+            }
+        }
+    }
+
+    /**
      * Synchronizes local DataStore with a remote User profile from Firestore.
      * Enforces account ownership, rejects stale or mismatched synchronizations,
      * and atomically synchronizes identity fields while cleaning unconfigured values.
@@ -246,6 +284,13 @@ class UserSessionManager @Inject constructor(
                 preferences.remove(PreferencesKeys.SIGIL_COLOR)
             }
 
+            if (user.avatarConfig != null) {
+                val safe = user.avatarConfig.withSafeFallbacks(com.saurabh.artifact.model.avatar.DefaultAvatarAssetValidator)
+                preferences[PreferencesKeys.AVATAR_CONFIG_JSON] = Json.encodeToString(safe)
+            } else {
+                preferences.remove(PreferencesKeys.AVATAR_CONFIG_JSON)
+            }
+
             preferences[PreferencesKeys.IS_ANONYMOUS] = user.isAnonymous
             preferences[PreferencesKeys.RESONANCE_IN] = user.resonanceInCount
             preferences[PreferencesKeys.RESONANCE_OUT] = user.resonanceOutCount
@@ -269,6 +314,7 @@ class UserSessionManager @Inject constructor(
                 preferences.remove(PreferencesKeys.SIGIL_SEED)
                 preferences.remove(PreferencesKeys.SIGIL_COLOR)
                 preferences.remove(PreferencesKeys.SIGIL_CONFIG_JSON)
+                preferences.remove(PreferencesKeys.AVATAR_CONFIG_JSON)
                 preferences.remove(PreferencesKeys.IS_ANONYMOUS)
                 preferences.remove(PreferencesKeys.RESONANCE_IN)
                 preferences.remove(PreferencesKeys.RESONANCE_OUT)

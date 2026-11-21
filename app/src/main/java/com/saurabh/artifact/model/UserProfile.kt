@@ -1,5 +1,7 @@
 package com.saurabh.artifact.model
 
+import com.saurabh.artifact.model.avatar.AvatarConfiguration
+
 /**
  * Represents the local, anonymous identity of the user.
  * This is the primary identity marker used before/during anonymous sessions.
@@ -13,5 +15,6 @@ data class UserProfile(
     val sigilConfig: SigilConfig = SigilConfig(),
     val isAnonymous: Boolean = true,
     val resonanceInCount: Long = 0,
-    val resonanceOutCount: Long = 0
+    val resonanceOutCount: Long = 0,
+    val avatarConfig: AvatarConfiguration? = null
 )

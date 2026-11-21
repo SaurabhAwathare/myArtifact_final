@@ -66,6 +66,9 @@ object IdentitySelection : Route
 @Serializable
 object SigilRitual : Route
 
+@Serializable
+object AvatarCreator : Route
+
 // --- Recording Routes ---
 
 @Serializable

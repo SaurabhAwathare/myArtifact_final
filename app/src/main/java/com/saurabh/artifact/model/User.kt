@@ -5,6 +5,7 @@ import com.google.firebase.firestore.Exclude
 import com.google.firebase.firestore.IgnoreExtraProperties
 import com.google.firebase.firestore.PropertyName
 import com.google.firebase.firestore.ServerTimestamp
+import com.saurabh.artifact.model.avatar.AvatarConfiguration
 import com.saurabh.artifact.util.SecureString
 
 /**
@@ -41,7 +42,8 @@ data class User(
     val totalContributions: Long = 0,
     val lastPromptId: String = "",
     val identityMetadata: IdentityMetadata = IdentityMetadata(),
-    val schemaVersion: Int = 2
+    val schemaVersion: Int = 2,
+    val avatarConfig: AvatarConfiguration? = null
 ) {
     /**
      * Derives the user's current dominant emotion based on interaction history.

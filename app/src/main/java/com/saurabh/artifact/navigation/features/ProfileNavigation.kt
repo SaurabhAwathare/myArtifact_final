@@ -38,6 +38,12 @@ fun NavGraphBuilder.profileNavigation(
         navController.navigate(SigilRitual)
     }
 
+    val onNavigateToAvatarCreator = {
+        navController.navigate(AvatarCreator) {
+            launchSingleTop = true
+        }
+    }
+
     val onLogout = {
         navController.navigate(Login) {
             // Pop the entire graph to clear authenticated history
@@ -54,6 +60,7 @@ fun NavGraphBuilder.profileNavigation(
         ProfileScreen(
             onBack = onBack,
             onEditIdentity = onNavigateToIdentity,
+            onCustomizeAvatar = onNavigateToAvatarCreator,
             onNavigateToSettings = onNavigateToSettings,
             onNavigateToReview = { draftId ->
                 navController.navigate(PublishingStudio(draftId))
@@ -112,6 +119,12 @@ fun NavGraphBuilder.profileNavigation(
 
     composable<SigilRitual> {
         SigilRitualScreen(
+            onNavigateBack = onBack
+        )
+    }
+
+    composable<AvatarCreator> {
+        com.saurabh.artifact.ui.avatar.creator.AvatarCreatorScreen(
             onNavigateBack = onBack
         )
     }

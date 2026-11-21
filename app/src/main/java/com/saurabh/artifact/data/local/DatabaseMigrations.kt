@@ -299,6 +299,17 @@ object DatabaseMigrations {
         }
     }
 
+    /**
+     * Migration 80 -> 81: Avatar Creator persistence.
+     * Adds nullable 'avatarConfigJson' TEXT column to 'current_user_profile' table.
+     * Existing records receive NULL, preserving all existing profile progression counters and sigil data.
+     */
+    val MIGRATION_80_81 = object : Migration(80, 81) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `current_user_profile` ADD COLUMN `avatarConfigJson` TEXT DEFAULT NULL")
+        }
+    }
+
     val ALL_MIGRATIONS = arrayOf<Migration>(
         MIGRATION_60_61,
         MIGRATION_61_62,
@@ -312,6 +323,7 @@ object DatabaseMigrations {
         MIGRATION_76_77,
         MIGRATION_77_78,
         MIGRATION_78_79,
-        MIGRATION_79_80
+        MIGRATION_79_80,
+        MIGRATION_80_81
     )
 }

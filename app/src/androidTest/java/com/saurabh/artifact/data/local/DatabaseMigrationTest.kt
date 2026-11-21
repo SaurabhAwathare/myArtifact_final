@@ -669,4 +669,54 @@ class DatabaseMigrationTest {
         assertEquals("corr_79_dedup", pendingCursor.getString(pendingCursor.getColumnIndexOrThrow("correlationId")))
         pendingCursor.close()
     }
+
+    /**
+     * Verifies isolated migration from 80 to 81.
+     * Validates addition of avatarConfigJson column to current_user_profile table,
+     * ensuring legacy profiles retain NULL and progression counters remain intact.
+     */
+    @Test
+    @Throws(IOException::class)
+    fun migrate80To81_isolated() {
+        helper.createDatabase(TEST_DB, 80).apply {
+            execSQL(
+                """
+                INSERT INTO current_user_profile (
+                    id, anonymousId, anonymousName, anonymousSigil, sigilSeed, sigilColor, sigilConfigJson, cachedProgressionCount, lastUpdated
+                ) VALUES (
+                    'user_80', 'anon_80', 'Explorer 80', 'sigil_80', 'seed_80', '#FF0000', '{}', 17, 1700000000000
+                )
+                """.trimIndent()
+            )
+            close()
+        }
+
+        val db = helper.runMigrationsAndValidate(TEST_DB, 81, true, DatabaseMigrations.MIGRATION_80_81)
+
+        val cursor = db.query("SELECT * FROM current_user_profile WHERE id = 'user_80'")
+        assert(cursor.moveToFirst())
+        assertEquals("user_80", cursor.getString(cursor.getColumnIndexOrThrow("id")))
+        assertEquals(17, cursor.getInt(cursor.getColumnIndexOrThrow("cachedProgressionCount")))
+        val avatarColIdx = cursor.getColumnIndexOrThrow("avatarConfigJson")
+        assert(cursor.isNull(avatarColIdx))
+        cursor.close()
+
+        // Verify newly inserted profile with avatarConfigJson works
+        db.execSQL(
+            """
+            INSERT OR REPLACE INTO current_user_profile (
+                id, anonymousId, anonymousName, anonymousSigil, sigilSeed, sigilColor, sigilConfigJson, cachedProgressionCount, lastUpdated, avatarConfigJson
+            ) VALUES (
+                'user_81', 'anon_81', 'Explorer 81', 'sigil_81', 'seed_81', '#00FF00', '{}', 42, 1700000005000, '{"skinTone":"tone_1"}'
+            )
+            """.trimIndent()
+        )
+        val cursor81 = db.query("SELECT * FROM current_user_profile WHERE id = 'user_81'")
+        assert(cursor81.moveToFirst())
+        assertEquals("user_81", cursor81.getString(cursor81.getColumnIndexOrThrow("id")))
+        assertEquals(42, cursor81.getInt(cursor81.getColumnIndexOrThrow("cachedProgressionCount")))
+        assertEquals("{\"skinTone\":\"tone_1\"}", cursor81.getString(avatarColIdx))
+        cursor81.close()
+    }
 }
+

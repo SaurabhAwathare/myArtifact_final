@@ -33,6 +33,7 @@ fun ProfileScreen(
     onEditIdentity: () -> Unit,
     onNavigateToSettings: () -> Unit,
     onNavigateToReview: (String) -> Unit,
+    onCustomizeAvatar: () -> Unit = {},
     onNavigateToPublish: (String) -> Unit = {},
     onNavigateToResonanceList: (String, String, String) -> Unit = { _, _, _ -> },
     onNavigateToArtifactResonators: ((String, Boolean) -> Unit)? = null,
@@ -139,6 +140,7 @@ fun ProfileScreen(
                             isResonating = uiState.isResonating,
                             onResonateClick = { viewModel.toggleResonance() },
                             onEditClick = onEditIdentity,
+                            onCustomizeAvatar = onCustomizeAvatar,
                             onResonatorsClick = {
                                 uiState.userProfile?.id?.let { id ->
                                     onNavigateToResonanceList(id, "resonance_in", "Resonators")
