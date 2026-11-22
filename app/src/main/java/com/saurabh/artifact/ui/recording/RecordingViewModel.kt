@@ -13,6 +13,7 @@ import com.saurabh.artifact.model.PromptSelectionResult
 import com.saurabh.artifact.model.ReflectionPrompt
 import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.AuthRepository
+import com.saurabh.artifact.repository.PromptHydrationState
 import com.saurabh.artifact.repository.PromptRepository
 import com.saurabh.artifact.repository.UserRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -87,73 +88,119 @@ class RecordingViewModel @Inject constructor(
 
     private fun loadInitialPrompt() {
         viewModelScope.launch {
-            promptRepository.initializeIfEmpty()
+            _uiState.update { it.copy(isPromptLoading = true) }
+            try {
+                promptRepository.initializeIfEmpty()
 
-            val currentUser = authRepository.currentUser.value
-            val currentUid = currentUser?.uid
-            if (!currentUid.isNullOrBlank()) {
-                sessionUserId = currentUid
-            }
-
-            // Priority 1: Navigation Argument (Must be a valid approved prompt ID)
-            val navPromptId = savedStateHandle.get<String>("promptId")?.takeIf { it.isNotBlank() }
-            if (navPromptId != null) {
-                val approvedPrompt = promptRepository.getApprovedPromptById(navPromptId)
-                if (approvedPrompt != null) {
-                    _uiState.update { it.copy(currentPrompt = approvedPrompt, isPromptVisible = true) }
-                    currentSessionBatch = approvedPrompt.batchNumber
-                    userSessionManager.setActivePromptId(approvedPrompt.id)
-                    return@launch
+                val currentUser = authRepository.currentUser.value
+                val currentUid = currentUser?.uid
+                if (!currentUid.isNullOrBlank()) {
+                    sessionUserId = currentUid
                 }
-            }
 
-            // Priority 2: Session-active prompt (if valid approved & unconsumed for current user)
-            val activePromptId = userSessionManager.activePromptId.firstOrNull()
-            if (activePromptId != null && !currentUid.isNullOrBlank()) {
-                val activePrompt = promptRepository.getApprovedPromptById(activePromptId)
-                if (activePrompt != null) {
-                    val isConsumed = promptManager.isPromptConsumed(currentUid, activePromptId)
-                    if (!isConsumed) {
-                        _uiState.update { it.copy(currentPrompt = activePrompt, isPromptVisible = true) }
-                        currentSessionBatch = activePrompt.batchNumber
+                // Priority 1: Navigation Argument (Must be a valid approved prompt ID)
+                val navPromptId = savedStateHandle.get<String>("promptId")?.takeIf { it.isNotBlank() }
+                if (navPromptId != null) {
+                    val approvedPrompt = promptRepository.getApprovedPromptById(navPromptId)
+                    if (approvedPrompt != null) {
+                        _uiState.update { it.copy(currentPrompt = approvedPrompt, isPromptVisible = true) }
+                        currentSessionBatch = approvedPrompt.batchNumber
+                        userSessionManager.setActivePromptId(approvedPrompt.id)
                         return@launch
                     }
                 }
-            }
 
-            // Priority 3: Fresh account-scoped prompt selection starting from Batch 1
-            if (currentUid.isNullOrBlank()) {
-                diagnosticLogger.warn(DiagnosticCategory.RECORDING, "PROMPT_LOAD_BLOCKED_UNAUTHENTICATED")
-                _uiState.update { it.copy(currentPrompt = null, isPromptVisible = false) }
-                userSessionManager.setActivePromptId(null)
-                return@launch
-            }
+                // Boundary check: must be authenticated
+                if (currentUid.isNullOrBlank()) {
+                    diagnosticLogger.warn(DiagnosticCategory.RECORDING, "PROMPT_LOAD_BLOCKED_UNAUTHENTICATED")
+                    _uiState.update { it.copy(currentPrompt = null, isPromptVisible = false) }
+                    userSessionManager.setActivePromptId(null)
+                    return@launch
+                }
 
-            when (val result = promptManager.getNextPromptForUser(userId = currentUid, startBatchNumber = 1)) {
-                is PromptSelectionResult.Success -> {
-                    _uiState.update { it.copy(currentPrompt = result.prompt, isPromptVisible = true) }
-                    currentSessionBatch = result.batchNumber
-                    userSessionManager.setActivePromptId(result.prompt.id)
+                // Inbound Hydration Gate: Ensure remote consumption history is retrieved and merged before prompt selection
+                val hydrationResult = promptManager.ensureHydrated(currentUid)
+                when (hydrationResult) {
+                    is PromptHydrationState.Hydrated -> {
+                        diagnosticLogger.info(
+                            DiagnosticCategory.RECORDING,
+                            "PROMPT_HYDRATION_GATE_SUCCESS",
+                            mapOf("userId" to currentUid, "importedCount" to hydrationResult.importedCount)
+                        )
+                    }
+                    is PromptHydrationState.OfflineUnavailable -> {
+                        diagnosticLogger.warn(
+                            DiagnosticCategory.RECORDING,
+                            "PROMPT_HYDRATION_GATE_OFFLINE_FALLBACK",
+                            mapOf("userId" to currentUid, "reason" to hydrationResult.message)
+                        )
+                    }
+                    is PromptHydrationState.Failed -> {
+                        diagnosticLogger.error(
+                            DiagnosticCategory.RECORDING,
+                            "PROMPT_HYDRATION_GATE_FAILED",
+                            mapOf("userId" to currentUid, "isAuth" to hydrationResult.isAuthOrSecurity),
+                            hydrationResult.cause
+                        )
+                        if (hydrationResult.isAuthOrSecurity) {
+                            _uiState.update { it.copy(currentPrompt = null, isPromptVisible = false) }
+                            userSessionManager.setActivePromptId(null)
+                            return@launch
+                        }
+                    }
+                    PromptHydrationState.NotStarted,
+                    PromptHydrationState.Hydrating -> {
+                        diagnosticLogger.warn(
+                            DiagnosticCategory.RECORDING,
+                            "PROMPT_HYDRATION_GATE_INCOMPLETE",
+                            mapOf("userId" to currentUid)
+                        )
+                    }
                 }
-                is PromptSelectionResult.CatalogExhausted -> {
-                    diagnosticLogger.info(DiagnosticCategory.RECORDING, "PROMPT_CATALOG_EXHAUSTED", mapOf("userId" to currentUid))
-                    _uiState.update { it.copy(currentPrompt = null, isPromptVisible = false) }
-                    userSessionManager.setActivePromptId(null)
+
+                // Priority 2: Session-active prompt (if valid approved & unconsumed for current user)
+                val activePromptId = userSessionManager.activePromptId.firstOrNull()
+                if (activePromptId != null) {
+                    val activePrompt = promptRepository.getApprovedPromptById(activePromptId)
+                    if (activePrompt != null) {
+                        val isConsumed = promptManager.isPromptConsumed(currentUid, activePromptId)
+                        if (!isConsumed) {
+                            _uiState.update { it.copy(currentPrompt = activePrompt, isPromptVisible = true) }
+                            currentSessionBatch = activePrompt.batchNumber
+                            return@launch
+                        }
+                    }
                 }
-                is PromptSelectionResult.BatchExhausted -> {
-                    _uiState.update { it.copy(currentPrompt = null, isPromptVisible = false) }
-                    userSessionManager.setActivePromptId(null)
+
+                // Priority 3: Fresh account-scoped prompt selection starting from Batch 1
+                when (val result = promptManager.getNextPromptForUser(userId = currentUid, startBatchNumber = 1)) {
+                    is PromptSelectionResult.Success -> {
+                        _uiState.update { it.copy(currentPrompt = result.prompt, isPromptVisible = true) }
+                        currentSessionBatch = result.batchNumber
+                        userSessionManager.setActivePromptId(result.prompt.id)
+                    }
+                    is PromptSelectionResult.CatalogExhausted -> {
+                        diagnosticLogger.info(DiagnosticCategory.RECORDING, "PROMPT_CATALOG_EXHAUSTED", mapOf("userId" to currentUid))
+                        _uiState.update { it.copy(currentPrompt = null, isPromptVisible = false) }
+                        userSessionManager.setActivePromptId(null)
+                    }
+                    is PromptSelectionResult.BatchExhausted -> {
+                        _uiState.update { it.copy(currentPrompt = null, isPromptVisible = false) }
+                        userSessionManager.setActivePromptId(null)
+                    }
+                    is PromptSelectionResult.Error -> {
+                        diagnosticLogger.error(
+                            DiagnosticCategory.RECORDING,
+                            "PROMPT_LOADING_FAILED",
+                            mapOf("userId" to currentUid),
+                            result.cause
+                        )
+                        _uiState.update { it.copy(currentPrompt = null, isPromptVisible = false) }
+                        userSessionManager.setActivePromptId(null)
+                    }
                 }
-                is PromptSelectionResult.Error -> {
-                    diagnosticLogger.error(
-                        DiagnosticCategory.RECORDING,
-                        "PROMPT_LOADING_FAILED",
-                        mapOf("userId" to currentUid),
-                        result.cause
-                    )
-                    _uiState.update { it.copy(currentPrompt = null, isPromptVisible = false) }
-                    userSessionManager.setActivePromptId(null)
-                }
+            } finally {
+                _uiState.update { it.copy(isPromptLoading = false) }
             }
         }
     }
@@ -281,6 +328,18 @@ class RecordingViewModel @Inject constructor(
                 val nextBatch = if (currentSessionBatch < 8) currentSessionBatch + 1 else 1
                 when (val result = promptManager.getNextPromptForUser(userId = currentUid, startBatchNumber = nextBatch)) {
                     is PromptSelectionResult.Success -> {
+                        val updateResult = recordingSessionManager.updateActiveDraftPrompt(result.prompt.id)
+                        if (updateResult.isFailure) {
+                            diagnosticLogger.error(
+                                DiagnosticCategory.RECORDING,
+                                "NEXT_PROMPT_DRAFT_UPDATE_FAILED",
+                                mapOf("userId" to currentUid, "promptId" to result.prompt.id),
+                                updateResult.exceptionOrNull()
+                            )
+                            _uiState.update { it.copy(error = RecordingError.Unknown) }
+                            return@launch
+                        }
+
                         _uiState.update { it.copy(currentPrompt = result.prompt, isPromptVisible = true) }
                         currentSessionBatch = result.batchNumber
                         userSessionManager.setActivePromptId(result.prompt.id)

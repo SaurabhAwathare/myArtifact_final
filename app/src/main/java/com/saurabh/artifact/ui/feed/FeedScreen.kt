@@ -58,7 +58,8 @@ import com.saurabh.artifact.startup.StartupStage
 import com.saurabh.artifact.startup.StartupMetrics
 import com.saurabh.artifact.ui.components.PetalChip
 import com.saurabh.artifact.ui.components.QuietTab
-import com.saurabh.artifact.ui.components.ArtifactSigil
+import com.saurabh.artifact.model.avatar.AvatarConfiguration
+import com.saurabh.artifact.ui.components.ArtifactAvatar
 import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.ui.theme.GoldAura500
 import com.saurabh.artifact.util.StartupTracer
@@ -314,10 +315,9 @@ internal fun FeedTopBar(
                 }
             ) {
                 if (currentUser != null) {
-                    ArtifactSigil(
-                        config = currentUser.sigilConfig,
-                        size = 32.dp,
-                        isStatic = true
+                    ArtifactAvatar(
+                        config = currentUser.avatarConfig ?: AvatarConfiguration.DEFAULT,
+                        size = 32.dp
                     )
                 } else {
                     Icon(Icons.Rounded.Person, contentDescription = null)

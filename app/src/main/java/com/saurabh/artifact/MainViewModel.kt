@@ -85,7 +85,8 @@ class MainViewModel @Inject constructor(
     private val appCheckStateTracker: Lazy<AppCheckStateTracker>? = null,
     private val draftRepository: Lazy<DraftRepository>? = null,
     private val onboardingManager: OnboardingManager? = null,
-    @param:ApplicationContext private val context: Context? = null
+    @param:ApplicationContext private val context: Context? = null,
+    private val promptSyncRepository: Lazy<com.saurabh.artifact.repository.PromptSyncRepository>? = null,
 ) : ViewModel() {
 
     companion object {
@@ -639,6 +640,14 @@ class MainViewModel @Inject constructor(
 
                     when (gateResult) {
                         is SessionGateResult.Approved -> {
+                            val currentUid = authRepository.currentUser.value?.uid ?: authRepository.currentUserId
+                            if (currentUid.isNotBlank()) {
+                                viewModelScope.launch {
+                                    try {
+                                        promptSyncRepository?.get()?.ensureHydrated(currentUid)
+                                    } catch (_: Exception) {}
+                                }
+                            }
                             targetDestination
                         }
                         is SessionGateResult.Conflict -> {

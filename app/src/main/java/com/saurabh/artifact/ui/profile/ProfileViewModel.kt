@@ -130,8 +130,12 @@ class ProfileViewModel @Inject constructor(
     private val _isRefreshing = MutableStateFlow(value = false)
     private val _refreshTrigger = MutableStateFlow(0)
 
+    private val _savedCreatorProfiles = MutableStateFlow<Map<String, User>>(emptyMap())
+    val savedCreatorProfiles: StateFlow<Map<String, User>> = _savedCreatorProfiles.asStateFlow()
+
     @OptIn(ExperimentalCoroutinesApi::class)
     val savedArtifacts: Flow<PagingData<Artifact>> = _targetUserId.flatMapLatest { userId ->
+        _savedCreatorProfiles.value = emptyMap()
         val finalId = userId ?: currentUserId
         if (finalId != null && (userId == null || userId == currentUserId)) {
             artifactRepository.getSavedArtifactsPager(finalId)
@@ -148,6 +152,29 @@ class ProfileViewModel @Inject constructor(
             flowOf(PagingData.empty())
         }
     }.cachedIn(viewModelScope)
+
+    fun resolveSavedCreators(artifacts: List<Artifact>) {
+        if (artifacts.isEmpty()) return
+        val pairs = artifacts
+            .map { it.userId to it.author.anonymousId }
+            .filter { it.first.isNotBlank() || it.second.isNotBlank() }
+            .distinct()
+            .filter { (uid, anonId) ->
+                !_savedCreatorProfiles.value.containsKey(uid) && !_savedCreatorProfiles.value.containsKey(anonId)
+            }
+        if (pairs.isEmpty()) return
+
+        viewModelScope.launch {
+            try {
+                val profiles = userRepository.resolveCreatorProfilesBatch(pairs)
+                if (profiles.isNotEmpty()) {
+                    _savedCreatorProfiles.update { it + profiles }
+                }
+            } catch (e: Exception) {
+                diagnosticLogger.error(DiagnosticCategory.PROFILE, "SAVED_CREATORS_RESOLUTION_FAILED", emptyMap(), e)
+            }
+        }
+    }
 
     // Phase 1: Pagination state
     private val _additionalPublishedArtifacts = MutableStateFlow<List<Artifact>>(emptyList())

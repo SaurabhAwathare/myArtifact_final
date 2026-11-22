@@ -31,8 +31,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.saurabh.artifact.model.SigilConfig
-import com.saurabh.artifact.ui.components.ArtifactSigil
+import com.saurabh.artifact.model.avatar.AvatarConfiguration
+import com.saurabh.artifact.ui.components.ArtifactAvatar
 import com.saurabh.artifact.ui.components.state.LoadingPlaceholder
 
 @Composable
@@ -68,9 +68,13 @@ fun SettingsSection(
 fun SettingsIdentityItem(
     state: AnonymousIdentityState,
     onEditIdentity: () -> Unit,
-    onEditSigil: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onCustomizeAvatar: () -> Unit = onEditIdentity,
+    onEditSigil: (() -> Unit)? = null
 ) {
+    val handleAvatarClick = onEditSigil ?: onCustomizeAvatar
+    val avatarContentDesc = if (onEditSigil != null) "Enter Sigil Ritual" else "Customize Avatar"
+
     when (state) {
         is AnonymousIdentityState.Loading -> {
             Row(
@@ -106,16 +110,11 @@ fun SettingsIdentityItem(
                 is AnonymousIdentityState.Fallback -> state.anonymousName
                 else -> "Quiet Presence"
             }
-            val handle = when (state) {
-                is AnonymousIdentityState.Success -> state.anonymousSigil
-                is AnonymousIdentityState.Fallback -> state.anonymousSigil
-                else -> null
-            }
-            val config = when (state) {
-                is AnonymousIdentityState.Success -> state.sigilConfig
-                is AnonymousIdentityState.Fallback -> state.sigilConfig
-                else -> SigilConfig(seed = "fallback")
-            }
+            val avatarConfig = when (state) {
+                is AnonymousIdentityState.Success -> state.avatarConfig
+                is AnonymousIdentityState.Fallback -> state.avatarConfig
+                else -> AvatarConfiguration.DEFAULT
+            }.withSafeFallbacks()
 
             Row(
                 modifier = modifier
@@ -128,21 +127,22 @@ fun SettingsIdentityItem(
                     .padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Sigil preview with direct ritual affordance
+                // Identity preview with Identity Selection affordance (standardized avatar customization funnel)
                 Box(
                     modifier = Modifier
                         .size(56.dp)
-                        .semantics { contentDescription = "Enter Sigil Ritual" }
+                        .semantics { contentDescription = avatarContentDesc }
                         .clickable(
-                            onClick = onEditSigil,
+                            onClick = handleAvatarClick,
                             role = Role.Button,
-                            onClickLabel = "Enter Sigil Ritual"
+                            onClickLabel = avatarContentDesc
                         ),
                     contentAlignment = Alignment.Center
                 ) {
-                    ArtifactSigil(
-                        config = config,
-                        size = 56.dp
+                    ArtifactAvatar(
+                        config = avatarConfig,
+                        size = 56.dp,
+                        contentDescription = "User avatar"
                     )
                 }
                 Spacer(modifier = Modifier.width(16.dp))
@@ -155,16 +155,6 @@ fun SettingsIdentityItem(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    if (!handle.isNullOrBlank()) {
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = handle,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = "Anonymous Identity · Tap to customize",

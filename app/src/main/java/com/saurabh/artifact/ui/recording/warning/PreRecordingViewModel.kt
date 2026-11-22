@@ -32,6 +32,20 @@ class PreRecordingViewModel @Inject constructor(
 
     companion object {
         const val KEY_RITUAL_END_TIME = "ritual_end_time"
+        const val RITUAL_DURATION_SECONDS = 10
+    }
+
+    private var hasAnnouncedStart = false
+    private var hasAnnouncedCompletion = false
+
+    private fun getInitialRemainingSeconds(): Int {
+        val savedEndTime = savedStateHandle.get<Long>(KEY_RITUAL_END_TIME)
+        return if (savedEndTime != null) {
+            val remaining = ((savedEndTime - System.currentTimeMillis() + 999) / 1000).toInt()
+            remaining.coerceAtLeast(0)
+        } else {
+            RITUAL_DURATION_SECONDS
+        }
     }
 
     private data class StorageCheck(val isLow: Boolean, val isCritical: Boolean)
@@ -64,7 +78,7 @@ class PreRecordingViewModel @Inject constructor(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
         initialValue = PreRecordingWarningUiState(
-            remainingSeconds = 0,
+            remainingSeconds = getInitialRemainingSeconds(),
             isStorageLow = storageManager.availableStorageMb < StorageManager.LOW_STORAGE_THRESHOLD_MB,
             isStorageCritical = !storageManager.isStorageAvailable()
         )
@@ -76,11 +90,36 @@ class PreRecordingViewModel @Inject constructor(
     private var isNavigatingToRecord = false
 
     init {
-        // Stage 3.6.3a: The mandatory 10-second countdown is removed.
-        // Ensure any residual ritual state or saved countdown is cleared immediately.
-        savedStateHandle.remove<Long>(KEY_RITUAL_END_TIME)
-        recordingSessionManager.cancelRitual()
+        restoreOrStartRitual()
         observeRecordingState()
+    }
+
+    private fun restoreOrStartRitual() {
+        val savedEndTime = savedStateHandle.get<Long>(KEY_RITUAL_END_TIME)
+        val currentTime = System.currentTimeMillis()
+
+        if (savedEndTime != null) {
+            val remaining = ((savedEndTime - currentTime + 999) / 1000).toInt()
+            if (remaining > 0) {
+                recordingSessionManager.startRitual(remaining)
+            } else {
+                recordingSessionManager.skipRitual()
+            }
+        } else {
+            val endTime = currentTime + (RITUAL_DURATION_SECONDS * 1000L)
+            savedStateHandle[KEY_RITUAL_END_TIME] = endTime
+            recordingSessionManager.startRitual(RITUAL_DURATION_SECONDS)
+        }
+    }
+
+    fun syncCountdown() {
+        val savedEndTime = savedStateHandle.get<Long>(KEY_RITUAL_END_TIME) ?: return
+        val remaining = ((savedEndTime - System.currentTimeMillis() + 999) / 1000).toInt()
+        if (remaining <= 0) {
+            recordingSessionManager.skipRitual()
+        } else {
+            recordingSessionManager.startRitual(remaining)
+        }
     }
 
     private fun observeRecordingState() {
@@ -98,7 +137,7 @@ class PreRecordingViewModel @Inject constructor(
 
     fun canBeginRecording(): Boolean {
         val state = uiState.value
-        return !isNavigatingToRecord && !state.isStorageCritical && !state.isRecordingActive
+        return !isNavigatingToRecord && !state.isStorageCritical && !state.isRecordingActive && state.remainingSeconds <= 0
     }
 
     fun onBeginRecording(onProceed: () -> Unit) {
@@ -113,6 +152,32 @@ class PreRecordingViewModel @Inject constructor(
         savedStateHandle.remove<Long>(KEY_RITUAL_END_TIME)
         recordingSessionManager.cancelRitual()
         isNavigatingToRecord = false
+        hasAnnouncedStart = false
+        hasAnnouncedCompletion = false
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        if (!isNavigatingToRecord) {
+            cancel()
+        }
+    }
+
+    fun triggerInitialAnnouncement(announce: () -> Unit) {
+        if (!hasAnnouncedStart && savedStateHandle.get<Long>(KEY_RITUAL_END_TIME) != null) {
+            val remaining = getInitialRemainingSeconds()
+            if (remaining > 0) {
+                hasAnnouncedStart = true
+                announce()
+            }
+        }
+    }
+
+    fun triggerCompletionAnnouncement(announce: () -> Unit) {
+        if (hasAnnouncedStart && !hasAnnouncedCompletion) {
+            hasAnnouncedCompletion = true
+            announce()
+        }
     }
 
     fun openStorageSettings(context: Context) {
@@ -146,7 +211,7 @@ class PreRecordingViewModel @Inject constructor(
 }
 
 data class PreRecordingWarningUiState(
-    val remainingSeconds: Int = 0,
+    val remainingSeconds: Int = 10,
     val isRecordingActive: Boolean = false,
     val isStorageLow: Boolean = false,
     val isStorageCritical: Boolean = false

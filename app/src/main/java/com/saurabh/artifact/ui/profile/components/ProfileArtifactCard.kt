@@ -50,9 +50,12 @@ import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.model.ArtifactReactionCounts
 import com.saurabh.artifact.model.AuthorSnapshot
 import com.saurabh.artifact.model.Emotion
+import com.saurabh.artifact.model.ResolvedCreatorIdentity
 import com.saurabh.artifact.model.SigilConfig
+import com.saurabh.artifact.model.User
+import com.saurabh.artifact.model.avatar.AvatarConfiguration
 import com.saurabh.artifact.ui.components.AmbientWaveform
-import com.saurabh.artifact.ui.components.ArtifactSigil
+import com.saurabh.artifact.ui.components.ArtifactAvatar
 import com.saurabh.artifact.ui.components.ResonanceDisplay
 import com.saurabh.artifact.ui.components.WaveformContext
 import com.saurabh.artifact.ui.player.components.ModerationBanner
@@ -93,6 +96,7 @@ fun ProfileArtifactCard(
     isListened: Boolean = false,
     reviewProgress: Float = 0f,
     onResonatorsCountClick: (() -> Unit)? = null,
+    creatorProfile: User? = null,
 ) {
     var showMenu by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
@@ -123,6 +127,23 @@ fun ProfileArtifactCard(
     val effectiveDurationMs = artifact.durationMs
     val formattedDuration = remember(effectiveDurationMs, configuration) {
         TimeUtils.formatCompactDurationMillis(effectiveDurationMs, configuration)
+    }
+
+    val resolvedIdentity = remember(artifact, creatorProfile) {
+        if (creatorProfile != null) {
+            ResolvedCreatorIdentity.resolve(artifact, creatorProfile)
+        } else {
+            ResolvedCreatorIdentity(
+                name = artifact.author.name.ifBlank { ResolvedCreatorIdentity.NEUTRAL_NAME },
+                sigil = artifact.author.sigil,
+                sigilSeed = artifact.authorSigilConfig.seed,
+                sigilColor = artifact.author.sigilColor,
+                sigilConfig = artifact.authorSigilConfig,
+                personaId = artifact.author.anonymousId,
+                userId = artifact.userId,
+                avatarConfig = AvatarConfiguration.DEFAULT
+            )
+        }
     }
 
     val playActionLabel = when {
@@ -184,21 +205,21 @@ fun ProfileArtifactCard(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         // Public presentation identity for saved or external reflections
-                        if (!isOwner && !isDraft && artifact.author.name.isNotBlank()) {
+                        if (!isOwner && !isDraft && (creatorProfile != null || artifact.author.name.isNotBlank())) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(bottom = 6.dp)
                             ) {
-                                ArtifactSigil(
-                                    config = artifact.author.sigilConfig,
+                                ArtifactAvatar(
+                                    config = resolvedIdentity.avatarConfig,
                                     size = 20.dp,
-                                    isStatic = true
+                                    contentDescription = "Author avatar"
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = artifact.author.name,
+                                    text = resolvedIdentity.name,
                                     modifier = Modifier.weight(1f, fill = false),
                                     style = ArtifactTheme.typography.titleSmall.copy(
                                         fontSize = 14.sp
@@ -207,15 +228,6 @@ fun ProfileArtifactCard(
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
-                                if (artifact.author.sigil.isNotEmpty()) {
-                                    Text(
-                                        text = " · ${artifact.author.sigil}",
-                                        style = ArtifactTheme.typography.labelSmall,
-                                        color = ArtifactTheme.colors.onSurfaceMuted,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
                             }
                         }
 

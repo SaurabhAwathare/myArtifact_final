@@ -4,10 +4,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.Edit
-import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.PersonAdd
+import androidx.compose.material.icons.rounded.Publish
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.saurabh.artifact.R
 import com.saurabh.artifact.model.NotificationItem
@@ -79,7 +80,7 @@ object NotificationMapper {
                     title = title,
                     subtitle = subtitle,
                     type = NotificationType.RESONANCE,
-                    eventIcon = Icons.Rounded.GraphicEq,
+                    eventIcon = Icons.Rounded.Favorite,
                     eventDescription = "Resonance"
                 )
             }
@@ -105,17 +106,16 @@ object NotificationMapper {
                             title = UiText.StringResource(R.string.notification_system_new_artifact_title),
                             subtitle = UiText.StringResource(R.string.notification_new_artifact, title),
                             type = NotificationType.SYSTEM,
-                            eventIcon = Icons.Rounded.GraphicEq,
+                            eventIcon = Icons.Rounded.Publish,
                             eventDescription = "Artifact Published",
                             contextArtifactTitle = title
                         )
                     }
                     "IDENTITY_REFRESHED" -> {
                         val name = parts.getOrNull(1) ?: ""
-                        val sigil = parts.getOrNull(2) ?: ""
                         NotificationPresentation(
                             title = UiText.StringResource(R.string.notification_system_identity_title),
-                            subtitle = UiText.StringResource(R.string.notification_identity_refreshed, name, sigil),
+                            subtitle = UiText.StringResource(R.string.notification_identity_refreshed, name),
                             type = NotificationType.SYSTEM,
                             eventIcon = Icons.Rounded.AutoAwesome,
                             eventDescription = "Identity Refreshed"
@@ -165,8 +165,7 @@ object NotificationMapper {
             }
             "IDENTITY_REFRESHED" -> {
                 val name = parts.getOrNull(1) ?: ""
-                val sigil = parts.getOrNull(2) ?: ""
-                UiText.StringResource(R.string.notification_identity_refreshed, name, sigil)
+                UiText.StringResource(R.string.notification_identity_refreshed, name)
             }
             "USERNAME_UPDATED" -> {
                 val username = parts.getOrNull(1) ?: ""

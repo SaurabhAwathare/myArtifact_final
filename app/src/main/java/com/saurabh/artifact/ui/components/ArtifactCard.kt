@@ -102,7 +102,7 @@ fun ArtifactCard(
     recommendationReason: com.saurabh.artifact.model.FeedRecommendationReason? = null,
 ) {
     if (hydrationLevel == com.saurabh.artifact.ui.feed.HydrationLevel.SHELL) {
-        LightweightArtifactCard(artifact, onPlayClick, modifier)
+        LightweightArtifactCard(artifact, onPlayClick, modifier, creatorProfile)
         return
     }
 
@@ -235,10 +235,6 @@ fun ArtifactCard(
                             val authorA11yDescription = remember(resolvedIdentity, artifact.createdAt, isPending) {
                                 buildString {
                                     append(resolvedIdentity.name)
-                                    if (resolvedIdentity.sigil.isNotEmpty()) {
-                                        append(", ")
-                                        append(resolvedIdentity.sigil)
-                                    }
                                     append(", ")
                                     append(TimeUtils.getRelativeTime(artifact.createdAt))
                                     if (isPending) {
@@ -268,40 +264,24 @@ fun ArtifactCard(
                                         contentDescription = authorA11yDescription
                                     }
                             ) {
-                                ArtifactSigil(
-                                    config = resolvedIdentity.sigilConfig,
-                                    size = 32.dp,
-                                    isStatic = true
+                                ArtifactAvatar(
+                                    config = resolvedIdentity.avatarConfig,
+                                    size = 32.dp
                                 )
                                 
                                 Spacer(modifier = Modifier.width(12.dp))
                                 
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(
-                                            text = resolvedIdentity.name,
-                                            modifier = Modifier.weight(1f, fill = false),
-                                            style = ArtifactTheme.typography.titleSmall.copy(
-                                                fontWeight = FontWeight.Medium,
-                                                fontSize = 15.sp
-                                            ),
-                                            color = ArtifactTheme.colors.onSurfaceMain,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                        if (resolvedIdentity.sigil.isNotEmpty()) {
-                                            Text(
-                                                text = " · ",
-                                                style = ArtifactTheme.typography.labelMedium,
-                                                color = ArtifactTheme.colors.onSurfaceMuted
-                                            )
-                                            Text(
-                                                text = resolvedIdentity.sigil,
-                                                style = ArtifactTheme.typography.labelSmall,
-                                                color = ArtifactTheme.colors.onSurfaceMuted
-                                            )
-                                        }
-                                    }
+                                    Text(
+                                        text = resolvedIdentity.name,
+                                        style = ArtifactTheme.typography.titleSmall.copy(
+                                            fontWeight = FontWeight.Medium,
+                                            fontSize = 15.sp
+                                        ),
+                                        color = ArtifactTheme.colors.onSurfaceMain,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text(
                                             text = TimeUtils.getRelativeTime(artifact.createdAt),
@@ -586,7 +566,8 @@ fun ArtifactCard(
 private fun LightweightArtifactCard(
     artifact: Artifact,
     onPlayClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    creatorProfile: User? = null
 ) {
     val displayTitle = remember(artifact.title, artifact.episodeNumber) {
         ArtifactTitleFormatter.formatTitle(
@@ -606,8 +587,8 @@ private fun LightweightArtifactCard(
         } else ""
     }
 
-    val resolvedIdentity = remember(artifact) {
-        ResolvedCreatorIdentity.resolve(artifact, null)
+    val resolvedIdentity = remember(artifact, creatorProfile) {
+        ResolvedCreatorIdentity.resolve(artifact, creatorProfile)
     }
 
     val configuration = LocalConfiguration.current
@@ -640,40 +621,24 @@ private fun LightweightArtifactCard(
                         .weight(1f)
                         .defaultMinSize(minHeight = 48.dp)
                 ) {
-                    ArtifactSigil(
-                        config = resolvedIdentity.sigilConfig,
-                        size = 32.dp,
-                        isStatic = true
+                    ArtifactAvatar(
+                        config = resolvedIdentity.avatarConfig,
+                        size = 32.dp
                     )
                     
                     Spacer(modifier = Modifier.width(12.dp))
                     
                     Column(modifier = Modifier.weight(1f)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = resolvedIdentity.name,
-                                modifier = Modifier.weight(1f, fill = false),
-                                style = ArtifactTheme.typography.titleSmall.copy(
-                                    fontWeight = FontWeight.Medium,
-                                    fontSize = 15.sp
-                                ),
-                                color = ArtifactTheme.colors.onSurfaceMain,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            if (resolvedIdentity.sigil.isNotEmpty()) {
-                                Text(
-                                    text = " · ",
-                                    style = ArtifactTheme.typography.labelMedium,
-                                    color = ArtifactTheme.colors.onSurfaceMuted
-                                )
-                                Text(
-                                    text = resolvedIdentity.sigil,
-                                    style = ArtifactTheme.typography.labelSmall,
-                                    color = ArtifactTheme.colors.onSurfaceMuted
-                                )
-                            }
-                        }
+                        Text(
+                            text = resolvedIdentity.name,
+                            style = ArtifactTheme.typography.titleSmall.copy(
+                                fontWeight = FontWeight.Medium,
+                                fontSize = 15.sp
+                            ),
+                            color = ArtifactTheme.colors.onSurfaceMain,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                         Text(
                             text = TimeUtils.getRelativeTime(artifact.createdAt),
                             style = ArtifactTheme.typography.labelSmall,

@@ -37,7 +37,7 @@
 
     <!-- Notification Messages -->
     <string name="notification_new_artifact">You published a new artifact: %s ✨</string>
-    <string name="notification_identity_refreshed">You have shed your old presence and emerged as %1$s · %2$s 🎭</string>
+    <string name="notification_identity_refreshed">You have shed your old presence and emerged as %s 🎭</string>
     <string name="notification_presence_resonated">Someone has started following your journey ✨</string>
     <string name="notification_presence_resonated_with_actor">%s started following your journey ✨</string>
     <string name="notification_sigil_updated">You updated your sigil 🎨</string>
@@ -71,7 +71,7 @@
     <string name="terms_of_service_url">https://myartifact-555e3.web.app/terms.html</string>
 
     <!-- Disclosures -->
-    <string name="audio_collection_disclosure">Voice recordings are uploaded securely so they can be shared within Artifact according to your publishing choices. Drafts and published recordings can be managed or deleted as described in the Privacy Policy.</string>
+    <string name="audio_collection_disclosure">Recordings stay on your device as private drafts until you choose to publish them. You can review, publish, or delete your recordings at any time.</string>
 
     <!-- Login -->
     <string name="login_tagline">Pure expression. Private identity.</string>
@@ -93,15 +93,18 @@
 
     <!-- Pre-Recording Privacy Warning -->
     <string name="action_begin_recording">Begin Recording</string>
-    <string name="pre_recording_headline">Before you record&#8230;</string>
-    <string name="pre_recording_subtext">Protect your safety and peace of mind.</string>
+    <string name="pre_recording_headline">Before You Record</string>
+    <string name="pre_recording_subtext">Protect your privacy and personal safety.</string>
     <string name="pre_recording_breathing_suggestion">Speak honestly. Take a deep breath. Protect yourself too.</string>
-    <string name="pre_recording_warning_heading">Do not share:</string>
-    <string name="pre_recording_warning_item_full_name">Your full name</string>
-    <string name="pre_recording_warning_item_phone_number">Your phone number</string>
-    <string name="pre_recording_warning_item_address">Your home or exact address</string>
-    <string name="pre_recording_warning_item_workplace">Your workplace or employer details</string>
-    <string name="pre_recording_warning_item_location">Your precise location</string>
+    <string name="pre_recording_warning_heading">Keep your identity private</string>
+    <string name="pre_recording_warning_item_full_name">Do not share your full name.</string>
+    <string name="pre_recording_warning_item_phone_number">Do not share your phone number.</string>
+    <string name="pre_recording_warning_item_address">Do not share your home or exact address.</string>
+    <string name="pre_recording_warning_item_workplace">Do not share your workplace or employer details.</string>
+    <string name="pre_recording_warning_item_confidential">Do not share passwords, financial details, or confidential information.</string>
+    <string name="pre_recording_countdown_pause">Pause and read before continuing</string>
+    <string name="pre_recording_announcement_start">Please take 10 seconds to read the privacy guidelines.</string>
+    <string name="pre_recording_announcement_complete">You may now begin recording.</string>
     <string name="permission_microphone_title">Microphone Access</string>
     <string name="permission_microphone_body">To record your reflection and create an Artifact, we need access to your microphone. Your audio is processed locally and stays private.</string>
     <string name="permission_microphone_permanent_title">Permission Required</string>

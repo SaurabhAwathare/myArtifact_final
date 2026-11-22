@@ -390,7 +390,8 @@ class PlaybackService : MediaSessionService() {
                      * have been updated to consume "sigil_seed". 
                      * Status: Deprecated for backward compatibility.
                      */
-                    putString("avatar_seed", resolved.sigilSeed) 
+                    putString("avatar_seed", resolved.sigilSeed)
+                    putString("avatar_config_json", kotlinx.serialization.json.Json.encodeToString(resolved.avatarConfig))
                 }
             )
             .build()

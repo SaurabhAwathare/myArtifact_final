@@ -18,7 +18,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.saurabh.artifact.model.ResolvedCreatorIdentity
-import com.saurabh.artifact.ui.components.ArtifactSigil
+import com.saurabh.artifact.model.avatar.AvatarConfiguration
+import com.saurabh.artifact.ui.components.ArtifactAvatar
 import com.saurabh.artifact.ui.player.PlayerUiState
 import com.saurabh.artifact.ui.theme.CardShape
 import com.saurabh.artifact.ui.theme.GoldAura400
@@ -48,12 +49,13 @@ fun MiniPlayer(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            val sigilConfig = artifact.author.sigilConfig.copy(
-                seed = artifact.author.sigilConfig.seed.ifEmpty { artifact.id }
-            )
+            val avatarConfig = (uiState.currentPlayableArtifact?.avatarConfig?.takeIf { it != AvatarConfiguration.DEFAULT }
+                ?: artifact.avatarConfig).withSafeFallbacks()
 
-            ArtifactSigil(
-                config = sigilConfig,
+            ArtifactAvatar(
+                config = avatarConfig,
+                size = 48.dp,
+                contentDescription = "Creator avatar",
                 modifier = Modifier
                     .size(48.dp)
                     .clip(RoundedCornerShape(14.dp))

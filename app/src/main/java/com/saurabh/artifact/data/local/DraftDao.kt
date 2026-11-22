@@ -188,6 +188,16 @@ interface DraftDao {
     @Query("UPDATE artifact_drafts SET durationMs = :durationMs, amplitudeData = :amplitudes, lastCheckpointTimestamp = :checkpointTimestamp, durableBytes = :durableBytes, updatedAt = :updatedAt WHERE id = :id AND userId = :userId")
     suspend fun updateRecordingCheckpoint(id: String, userId: String, durationMs: Long, amplitudes: List<Float>, checkpointTimestamp: Long, durableBytes: Long, updatedAt: Long = System.currentTimeMillis())
 
+    /** User-scoped: Targeted update of draft prompt association with ownership and lifecycle enforcement. */
+    @Query("UPDATE artifact_drafts SET promptId = :promptId, updatedAt = :timestamp WHERE id = :id AND userId = :userId AND lifecycle = :expectedLifecycle")
+    suspend fun updateDraftPromptId(
+        id: String,
+        userId: String,
+        promptId: String?,
+        expectedLifecycle: ArtifactLifecycle = ArtifactLifecycle.RECORDING,
+        timestamp: Long = System.currentTimeMillis()
+    ): Int
+
     /** System/Internal: Query upload task status for draft to detect active publishing. */
     @Query("SELECT * FROM upload_tasks WHERE draftId = :draftId")
     suspend fun _getUploadTaskByDraftId(draftId: String): UploadTaskEntity?

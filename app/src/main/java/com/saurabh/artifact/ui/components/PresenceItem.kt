@@ -12,6 +12,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.saurabh.artifact.model.User
+import com.saurabh.artifact.model.avatar.AvatarConfiguration
 import com.saurabh.artifact.ui.theme.ArtifactTheme
 
 /**
@@ -35,33 +36,23 @@ fun PresenceItem(
             .padding(horizontal = 20.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        ArtifactSigil(
-            config = user.sigilConfig,
+        val avatarConfig = (user.avatarConfig ?: AvatarConfiguration.DEFAULT).withSafeFallbacks()
+
+        ArtifactAvatar(
+            config = avatarConfig,
             size = 48.dp,
-            isStatic = true
+            contentDescription = "User avatar"
         )
         
         Spacer(Modifier.width(16.dp))
         
         Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = user.anonymousName,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-                
-                if (user.anonymousSigil.isNotEmpty()) {
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        text = "· ${user.anonymousSigil}",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = ArtifactTheme.colors.onSurfaceMuted,
-                        modifier = Modifier.alpha(0.6f)
-                    )
-                }
-            }
+            Text(
+                text = user.anonymousName,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
+            )
             
             Text(
                 text = user.emotionalProfile,

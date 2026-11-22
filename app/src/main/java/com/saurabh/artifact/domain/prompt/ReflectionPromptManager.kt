@@ -2,7 +2,10 @@ package com.saurabh.artifact.domain.prompt
 
 import com.saurabh.artifact.model.PromptSelectionResult
 import com.saurabh.artifact.model.ReflectionPrompt
+import com.saurabh.artifact.repository.PromptHydrationState
 import com.saurabh.artifact.repository.PromptRepository
+import com.saurabh.artifact.repository.PromptSyncRepository
+import dagger.Lazy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -14,8 +17,25 @@ import javax.inject.Singleton
  */
 @Singleton
 class ReflectionPromptManager @Inject constructor(
-    private val promptRepository: PromptRepository
+    private val promptRepository: PromptRepository,
+    private val promptSyncRepository: Lazy<PromptSyncRepository>? = null,
 ) {
+
+    /**
+     * Ensures remote consumption history is hydrated before prompt selection.
+     */
+    suspend fun ensureHydrated(userId: String): PromptHydrationState {
+        return promptSyncRepository?.get()?.ensureHydrated(userId)
+            ?: promptRepository.ensureHydrated(userId)
+    }
+
+    /**
+     * Retrieves current hydration state for [userId].
+     */
+    fun getHydrationState(userId: String): PromptHydrationState {
+        return promptSyncRepository?.get()?.getHydrationState(userId)
+            ?: promptRepository.getHydrationState(userId)
+    }
 
     /**
      * Fetches the next prompt for a user according to the batch progression flow (1 -> 2 -> ... -> 8 -> 1).

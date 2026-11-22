@@ -37,6 +37,8 @@ import androidx.compose.ui.zIndex
 import com.saurabh.artifact.model.PlayableArtifact
 import com.saurabh.artifact.model.AuthorSnapshot
 import com.saurabh.artifact.model.ResolvedCreatorIdentity
+import com.saurabh.artifact.model.avatar.AvatarConfiguration
+import com.saurabh.artifact.ui.components.ArtifactAvatar
 import com.saurabh.artifact.ui.components.EmotionTagsGroup
 import com.saurabh.artifact.ui.player.components.*
 import com.saurabh.artifact.ui.theme.ArtifactTheme
@@ -248,26 +250,22 @@ fun ImmersivePlayerScreen(
                                         modifier = Modifier.size(presenceDimension),
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        // Keep a subtle emotional glow behind the sigil
+                                        // Keep a subtle emotional glow behind the avatar
                                         EmotionalAudioSurface(
                                             emotion = emotion,
                                             isPlaying = uiState.isPlaying,
                                             modifier = Modifier.fillMaxSize().alpha(0.3f)
                                         )
                                         
-                                        val sigilConfig = artifact?.author?.sigilConfig 
-                                            ?: com.saurabh.artifact.model.SigilConfig(seed = playableArtifact?.sigilSeed ?: "")
-                                            
-                                        // Use Player-safe sigil seed if author.sigilSeed is empty
-                                        val safeSigilConfig = sigilConfig.copy(
-                                            seed = sigilConfig.seed.ifEmpty { 
-                                                playableArtifact?.sigilSeed?.ifEmpty { artifact?.id } ?: artifact?.id ?: "" 
-                                            }
-                                        )
+                                        val avatarConfig = (playableArtifact?.avatarConfig?.takeIf { it != AvatarConfiguration.DEFAULT }
+                                            ?: artifact?.avatarConfig
+                                            ?: playableArtifact?.avatarConfig
+                                            ?: AvatarConfiguration.DEFAULT).withSafeFallbacks()
 
-                                        com.saurabh.artifact.ui.components.ArtifactSigil(
-                                            config = safeSigilConfig,
+                                        ArtifactAvatar(
+                                            config = avatarConfig,
                                             size = sigilDimension,
+                                            contentDescription = "Creator avatar",
                                             modifier = Modifier.clickable { 
                                                 onAuthorClick(uiState.internalOwnerId) 
                                             }
@@ -332,8 +330,6 @@ fun ImmersivePlayerScreen(
                                 val authorName = playableArtifact?.authorName?.ifEmpty { null }
                                     ?: artifact?.author?.name?.ifEmpty { null }
                                     ?: ResolvedCreatorIdentity.NEUTRAL_NAME
-                                val authorSigil = playableArtifact?.authorSigil?.ifEmpty { null }
-                                    ?: artifact?.author?.sigil ?: ""
                                 
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
@@ -345,19 +341,6 @@ fun ImmersivePlayerScreen(
                                         color = Color.White.copy(alpha = 0.7f),
                                         fontWeight = FontWeight.Bold
                                     )
-                                    if (authorSigil.isNotEmpty()) {
-                                        Text(
-                                            text = " · ",
-                                            style = MaterialTheme.typography.bodyLarge,
-                                            color = Color.White.copy(alpha = 0.3f)
-                                        )
-                                        Text(
-                                            text = authorSigil,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = Color.White.copy(alpha = 0.5f),
-                                            fontWeight = FontWeight.Light
-                                        )
-                                    }
                                 }
                             }
 

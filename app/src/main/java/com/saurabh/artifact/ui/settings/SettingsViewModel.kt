@@ -20,6 +20,7 @@ import com.saurabh.artifact.R
 import com.saurabh.artifact.domain.auth.CleanupEventKey
 import com.saurabh.artifact.data.local.UserSessionManager
 import com.saurabh.artifact.model.SigilConfig
+import com.saurabh.artifact.model.avatar.AvatarConfiguration
 import com.saurabh.artifact.repository.RemoteProfileState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
@@ -41,12 +42,14 @@ sealed interface AnonymousIdentityState {
     data class Success(
         val anonymousName: String,
         val anonymousSigil: String?,
-        val sigilConfig: SigilConfig
+        val sigilConfig: SigilConfig,
+        val avatarConfig: AvatarConfiguration = AvatarConfiguration.DEFAULT
     ) : AnonymousIdentityState
     data class Fallback(
         val anonymousName: String = "Quiet Presence",
         val anonymousSigil: String? = null,
-        val sigilConfig: SigilConfig = SigilConfig(seed = "fallback")
+        val sigilConfig: SigilConfig = SigilConfig(seed = "fallback"),
+        val avatarConfig: AvatarConfiguration = AvatarConfiguration.DEFAULT
     ) : AnonymousIdentityState
 }
 
@@ -96,14 +99,16 @@ class SettingsViewModel @Inject constructor(
                 ?: profile.sigil.ifBlank { null }
             val config = firestoreUser?.sigilConfig?.takeIf { it != SigilConfig() }
                 ?: profile.sigilConfig
+            val avatar = (firestoreUser?.avatarConfig ?: profile.avatarConfig ?: AvatarConfiguration.DEFAULT).withSafeFallbacks()
 
             if (rawName == null && rawSigil == null) {
-                AnonymousIdentityState.Fallback()
+                AnonymousIdentityState.Fallback(avatarConfig = avatar)
             } else {
                 AnonymousIdentityState.Success(
                     anonymousName = rawName ?: "Quiet Presence",
                     anonymousSigil = rawSigil,
-                    sigilConfig = config
+                    sigilConfig = config,
+                    avatarConfig = avatar
                 )
             }
         } else {
@@ -114,14 +119,16 @@ class SettingsViewModel @Inject constructor(
                 val rawSigil = firestoreUser.anonymousSigil.ifBlank { null }
                 val config = firestoreUser.sigilConfig.takeIf { it != SigilConfig() }
                     ?: SigilConfig(seed = firestoreUser.sigilSeed.ifBlank { authUid })
+                val avatar = (firestoreUser.avatarConfig ?: AvatarConfiguration.DEFAULT).withSafeFallbacks()
 
                 if (rawName == null && rawSigil == null) {
-                    AnonymousIdentityState.Fallback()
+                    AnonymousIdentityState.Fallback(avatarConfig = avatar)
                 } else {
                     AnonymousIdentityState.Success(
                         anonymousName = rawName ?: "Quiet Presence",
                         anonymousSigil = rawSigil,
-                        sigilConfig = config
+                        sigilConfig = config,
+                        avatarConfig = avatar
                     )
                 }
             } else if (remoteProfileState is RemoteProfileState.Exists && remoteProfileState.uid == authUid) {
@@ -130,14 +137,16 @@ class SettingsViewModel @Inject constructor(
                 val rawSigil = user.anonymousSigil.ifBlank { null }
                 val config = user.sigilConfig.takeIf { it != SigilConfig() }
                     ?: SigilConfig(seed = user.sigilSeed.ifBlank { authUid })
+                val avatar = (user.avatarConfig ?: AvatarConfiguration.DEFAULT).withSafeFallbacks()
 
                 if (rawName == null && rawSigil == null) {
-                    AnonymousIdentityState.Fallback()
+                    AnonymousIdentityState.Fallback(avatarConfig = avatar)
                 } else {
                     AnonymousIdentityState.Success(
                         anonymousName = rawName ?: "Quiet Presence",
                         anonymousSigil = rawSigil,
-                        sigilConfig = config
+                        sigilConfig = config,
+                        avatarConfig = avatar
                     )
                 }
             } else if (remoteProfileState is RemoteProfileState.CachedAvailable && remoteProfileState.uid == authUid) {
@@ -146,14 +155,16 @@ class SettingsViewModel @Inject constructor(
                 val rawSigil = user.anonymousSigil.ifBlank { null }
                 val config = user.sigilConfig.takeIf { it != SigilConfig() }
                     ?: SigilConfig(seed = user.sigilSeed.ifBlank { authUid })
+                val avatar = (user.avatarConfig ?: AvatarConfiguration.DEFAULT).withSafeFallbacks()
 
                 if (rawName == null && rawSigil == null) {
-                    AnonymousIdentityState.Fallback()
+                    AnonymousIdentityState.Fallback(avatarConfig = avatar)
                 } else {
                     AnonymousIdentityState.Success(
                         anonymousName = rawName ?: "Quiet Presence",
                         anonymousSigil = rawSigil,
-                        sigilConfig = config
+                        sigilConfig = config,
+                        avatarConfig = avatar
                     )
                 }
             } else if (owningUid == authUid) {
@@ -161,14 +172,16 @@ class SettingsViewModel @Inject constructor(
                 val rawName = profile.username.ifBlank { null }
                 val rawSigil = profile.sigil.ifBlank { null }
                 val config = profile.sigilConfig
+                val avatar = (profile.avatarConfig ?: AvatarConfiguration.DEFAULT).withSafeFallbacks()
 
                 if (rawName == null && rawSigil == null) {
-                    AnonymousIdentityState.Fallback()
+                    AnonymousIdentityState.Fallback(avatarConfig = avatar)
                 } else {
                     AnonymousIdentityState.Success(
                         anonymousName = rawName ?: "Quiet Presence",
                         anonymousSigil = rawSigil,
-                        sigilConfig = config
+                        sigilConfig = config,
+                        avatarConfig = avatar
                     )
                 }
             } else if (remoteProfileState is RemoteProfileState.NotFound && remoteProfileState.uid == authUid) {

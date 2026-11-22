@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.itemKey
 import com.saurabh.artifact.model.Artifact
+import com.saurabh.artifact.model.User
 
 fun LazyListScope.userArtifactsList(
     artifacts: List<Artifact>,
@@ -35,7 +36,9 @@ fun LazyListScope.userArtifactsList(
     onResonatorsCountClick: ((Artifact) -> Unit)? = null,
     onLoadMore: () -> Unit = {},
     isLoadingMore: Boolean = false,
-    hasMore: Boolean = false
+    hasMore: Boolean = false,
+    creatorProfile: User? = null,
+    creatorProfiles: Map<String, User> = emptyMap()
 ) {
     if (artifacts.isNotEmpty()) {
         items(artifacts, key = { it.id }) { artifact ->
@@ -54,6 +57,9 @@ fun LazyListScope.userArtifactsList(
                     if (isCurrent && duration > 0) currentPosition.toFloat() / duration else 0f 
                 }
             }
+            val effectiveCreatorProfile = creatorProfiles[artifact.userId]
+                ?: creatorProfiles[artifact.author.anonymousId]
+                ?: creatorProfile
 
             Box(modifier = Modifier.padding(horizontal = 20.dp)) {
                 ProfileArtifactCard(
@@ -68,7 +74,8 @@ fun LazyListScope.userArtifactsList(
                     onRename = { newTitle -> onRename(artifact, newTitle) },
                     onDelete = { onDelete(artifact) },
                     onUnsave = { onSaveClick(artifact) },
-                    onResonatorsCountClick = onResonatorsCountClick?.let { cb -> { cb(artifact) } }
+                    onResonatorsCountClick = onResonatorsCountClick?.let { cb -> { cb(artifact) } },
+                    creatorProfile = effectiveCreatorProfile
                 )
             }
         }
@@ -123,7 +130,9 @@ fun LazyListScope.userArtifactsList(
     onSaveClick: (Artifact) -> Unit = {},
     savedIds: Set<String> = emptySet(),
     emptyMessage: String? = null,
-    onResonatorsCountClick: ((Artifact) -> Unit)? = null
+    onResonatorsCountClick: ((Artifact) -> Unit)? = null,
+    creatorProfile: User? = null,
+    creatorProfiles: Map<String, User> = emptyMap()
 ) {
     if (artifacts.itemCount > 0) {
         items(
@@ -140,6 +149,9 @@ fun LazyListScope.userArtifactsList(
                     if (isCurrent && duration > 0) currentPosition.toFloat() / duration else 0f 
                 }
             }
+            val effectiveCreatorProfile = creatorProfiles[artifact.userId]
+                ?: creatorProfiles[artifact.author.anonymousId]
+                ?: creatorProfile
 
             Box(modifier = Modifier.padding(horizontal = 20.dp)) {
                 ProfileArtifactCard(
@@ -154,7 +166,8 @@ fun LazyListScope.userArtifactsList(
                     onRename = { newTitle -> onRename(artifact, newTitle) },
                     onDelete = { onDelete(artifact) },
                     onUnsave = { onSaveClick(artifact) },
-                    onResonatorsCountClick = onResonatorsCountClick?.let { cb -> { cb(artifact) } }
+                    onResonatorsCountClick = onResonatorsCountClick?.let { cb -> { cb(artifact) } },
+                    creatorProfile = effectiveCreatorProfile
                 )
             }
         }

@@ -22,6 +22,7 @@ import com.saurabh.artifact.model.Artifact
 import com.saurabh.artifact.model.AuthorSnapshot
 import com.saurabh.artifact.model.SigilConfig
 import com.saurabh.artifact.model.User
+import com.saurabh.artifact.model.avatar.AvatarConfiguration
 import com.saurabh.artifact.worker.InteractionSyncWorker
 import dagger.Lazy
 import io.mockk.*
@@ -1282,12 +1283,14 @@ class UserRepositoryTest {
         every { snapshot.getString("sigilSeed") } returns "seed_a"
         every { snapshot.getString("sigilColor") } returns "#FFD700"
         every { snapshot.getLong(any()) } returns 5L
+        every { snapshot.get("avatarConfig") } returns null
 
         listenerSlot.captured.onEvent(snapshot, null)
 
         assertNotNull(emittedUser)
         assertEquals(personaId, emittedUser?.id)
         assertEquals("Alice", emittedUser?.anonymousName)
+        assertEquals(AvatarConfiguration.DEFAULT, emittedUser?.avatarConfig)
 
         job.cancel()
 

@@ -10,8 +10,10 @@ import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.SessionGateResult
 import com.saurabh.artifact.domain.auth.RegistrationCoordinator
 import com.saurabh.artifact.domain.auth.RegistrationResult
+import com.saurabh.artifact.repository.PromptSyncRepository
 import com.saurabh.artifact.ui.util.UiText
 import com.saurabh.artifact.ui.util.ErrorMessageMapper
+import dagger.Lazy
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -24,7 +26,8 @@ class LoginViewModel @Inject constructor(
     private val authRepository: AuthRepository,
     private val registrationCoordinator: RegistrationCoordinator,
     val credentialHelper: CredentialHelper,
-    private val diagnosticLogger: DiagnosticLogger
+    private val diagnosticLogger: DiagnosticLogger,
+    private val promptSyncRepository: Lazy<PromptSyncRepository>? = null,
 ) : ViewModel() {
 
     private val _loginState = MutableStateFlow<LoginState>(LoginState.Idle)
@@ -73,6 +76,14 @@ class LoginViewModel @Inject constructor(
                             "LOGIN_SESSION_GATE_APPROVED",
                             mapOf("user_type" to if (result is RegistrationResult.SuccessNewUser) "NEW" else "EXISTING")
                         )
+                        val currentUid = authRepository.currentUser.value?.uid ?: authRepository.currentUserId
+                        if (currentUid.isNotBlank()) {
+                            viewModelScope.launch {
+                                try {
+                                    promptSyncRepository?.get()?.ensureHydrated(currentUid)
+                                } catch (_: Exception) {}
+                            }
+                        }
                         _loginState.value = LoginState.Success(result)
                     }
                     is SessionGateResult.Conflict -> {

@@ -42,14 +42,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.saurabh.artifact.domain.IdentityProtectionPolicy
+import com.saurabh.artifact.model.avatar.AvatarConfiguration
 import com.saurabh.artifact.ui.components.AppSnackbarHost
-import com.saurabh.artifact.ui.components.ArtifactSigil
+import com.saurabh.artifact.ui.components.ArtifactAvatar
 import com.saurabh.artifact.ui.components.state.LoadingPlaceholder
 import com.saurabh.artifact.ui.identity.components.CandidateSelector
 import java.text.SimpleDateFormat
@@ -60,10 +62,11 @@ import java.util.Locale
 fun IdentitySelectionScreen(
     onComplete: () -> Unit,
     onBack: () -> Unit,
-    onEditSigil: () -> Unit,
-    viewModel: IdentityViewModel = hiltViewModel()
+    onCustomizeAvatar: () -> Unit = {},
+    viewModel: IdentityViewModel = hiltViewModel(),
+    onEditSigil: (() -> Unit)? = null
 ) {
-    val sigilConfig by viewModel.sigilConfig.collectAsStateWithLifecycle()
+    val handleAvatarClick = onEditSigil ?: onCustomizeAvatar
     val candidateUiState by viewModel.candidateUiState.collectAsStateWithLifecycle()
     val selectedCandidate by viewModel.selectedCandidate.collectAsStateWithLifecycle()
     val isSaveEnabled by viewModel.isSaveEnabled.collectAsStateWithLifecycle()
@@ -116,7 +119,12 @@ fun IdentitySelectionScreen(
                 Box(
                     modifier = Modifier
                         .size(160.dp)
-                        .clickable(enabled = userProfile != null) { onEditSigil() },
+                        .clickable(
+                            enabled = userProfile != null,
+                            onClick = handleAvatarClick,
+                            role = Role.Button,
+                            onClickLabel = "Customize Avatar"
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
                     if (userProfile == null) {
@@ -126,40 +134,30 @@ fun IdentitySelectionScreen(
                             shape = CircleShape
                         )
                     } else {
-                        ArtifactSigil(
-                            config = sigilConfig,
-                            size = 140.dp
+                        val avatarConfig = (userProfile?.avatarConfig ?: AvatarConfiguration.DEFAULT).withSafeFallbacks()
+                        ArtifactAvatar(
+                            config = avatarConfig,
+                            size = 140.dp,
+                            contentDescription = "User avatar"
                         )
                     }
                 }
 
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Tap avatar to customize in Avatar Creator",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+
                 Spacer(modifier = Modifier.height(16.dp))
 
                 // Public Identity Preview
-                Row(
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = userProfile?.anonymousName ?: "Searching...",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Medium
-                    )
-                    userProfile?.anonymousSigil?.let { sigil ->
-                        if (sigil.isNotEmpty()) {
-                            Text(
-                                text = " · ",
-                                style = MaterialTheme.typography.titleLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                            )
-                            Text(
-                                text = sigil,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontWeight = FontWeight.Light
-                            )
-                        }
-                    }
-                }
+                Text(
+                    text = userProfile?.anonymousName ?: "Searching...",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Medium
+                )
             }
 
             Spacer(modifier = Modifier.height(24.dp))

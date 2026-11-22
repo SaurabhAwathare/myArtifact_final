@@ -17,9 +17,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.saurabh.artifact.model.SigilConfig
+import com.saurabh.artifact.model.avatar.AvatarConfiguration
 import com.saurabh.artifact.model.User
-import com.saurabh.artifact.ui.components.ArtifactSigil
+import com.saurabh.artifact.ui.components.ArtifactAvatar
 import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.ui.theme.GoldAura500
 import com.saurabh.artifact.ui.theme.Obsidian950
@@ -71,7 +71,7 @@ fun IdentityRevealScreenPreview() {
             userProfile = User(
                 anonymousName = "Silent Phoenix",
                 anonymousSigil = "PHX-77",
-                sigilConfig = SigilConfig(seed = "preview")
+                avatarConfig = AvatarConfiguration.DEFAULT
             ),
             alpha = 1f,
             scale = 1f,
@@ -109,12 +109,12 @@ private fun IdentityRevealScreenContent(
                         .alpha(alpha),
                     contentAlignment = Alignment.Center
                 ) {
-                    userProfile?.let { user ->
-                        ArtifactSigil(
-                            config = user.sigilConfig,
-                            size = 200.dp
-                        )
-                    }
+                    val avatarConfig = (userProfile?.avatarConfig ?: AvatarConfiguration.DEFAULT).withSafeFallbacks()
+                    ArtifactAvatar(
+                        config = avatarConfig,
+                        size = 200.dp,
+                        contentDescription = "User avatar"
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(32.dp))
@@ -125,13 +125,6 @@ private fun IdentityRevealScreenContent(
                         style = MaterialTheme.typography.displaySmall,
                         color = GoldAura500,
                         fontWeight = FontWeight.Bold,
-                        modifier = Modifier.alpha(alpha)
-                    )
-                    
-                    Text(
-                        text = "· ${user.anonymousSigil}",
-                        style = MaterialTheme.typography.headlineSmall,
-                        color = GoldAura500.copy(alpha = 0.5f),
                         modifier = Modifier.alpha(alpha)
                     )
                 }

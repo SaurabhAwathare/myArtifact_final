@@ -21,7 +21,7 @@ import androidx.compose.ui.unit.sp
 import com.saurabh.artifact.model.User
 import com.saurabh.artifact.ui.components.ArtifactAvatar
 import com.saurabh.artifact.ui.theme.ArtifactTheme
-import com.saurabh.artifact.ui.components.ArtifactSigil
+import com.saurabh.artifact.model.avatar.AvatarConfiguration
 import com.saurabh.artifact.model.SigilConfig
 import com.saurabh.artifact.ui.components.state.LoadingPlaceholder
 import com.saurabh.artifact.ui.theme.Spacing
@@ -43,7 +43,6 @@ fun ProfileHeader(
     onResonateClick: () -> Unit,
     onEditClick: () -> Unit,
     modifier: Modifier = Modifier,
-    onCustomizeAvatar: () -> Unit = {},
     onResonatorsClick: () -> Unit = {},
     onResonatingClick: () -> Unit = {},
     isLoading: Boolean = false,
@@ -88,23 +87,11 @@ fun ProfileHeader(
                         width = Modifier.size(64.dp),
                         shape = CircleShape
                     )
-                } else if (isSelf && user.avatarConfig != null) {
+                } else {
                     ArtifactAvatar(
-                        config = user.avatarConfig,
+                        config = user.avatarConfig ?: AvatarConfiguration.DEFAULT,
                         size = 64.dp,
                         contentDescription = "User avatar"
-                    )
-                } else {
-                    val displayConfig = when {
-                        user.sigilConfig != SigilConfig() -> user.sigilConfig
-                        user.sigilSeed.isNotBlank() -> SigilConfig(seed = user.sigilSeed)
-                        isSelf && sigilConfig != SigilConfig() -> sigilConfig
-                        else -> SigilConfig(seed = user.id.ifBlank { "fallback" })
-                    }
-
-                    ArtifactSigil(
-                        config = displayConfig,
-                        size = 64.dp
                     )
                 }
             }
@@ -122,12 +109,6 @@ fun ProfileHeader(
                         width = Modifier.width(120.dp),
                         shape = RoundedCornerShape(4.dp)
                     )
-                    Spacer(modifier = Modifier.height(Spacing.ExtraSmall))
-                    LoadingPlaceholder(
-                        height = 14.dp,
-                        width = Modifier.width(70.dp),
-                        shape = RoundedCornerShape(4.dp)
-                    )
                 } else {
                     Text(
                         text = user.anonymousName.ifBlank { "quiet presence" },
@@ -137,18 +118,6 @@ fun ProfileHeader(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-
-                    val handle = user.anonymousSigil.takeIf { it.isNotBlank() }
-                    if (handle != null) {
-                        Spacer(modifier = Modifier.height(Spacing.ExtraSmall))
-                        Text(
-                            text = handle,
-                            style = ArtifactTheme.typography.labelMedium,
-                            color = ArtifactTheme.colors.onSurfaceMuted,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
                 }
 
                 if (!isSelf) {
@@ -169,28 +138,6 @@ fun ProfileHeader(
                     ) {
                         Text(
                             text = if (isResonating) "Following" else "Follow",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-                } else {
-                    Spacer(modifier = Modifier.height(Spacing.Small))
-                    Button(
-                        onClick = onCustomizeAvatar,
-                        enabled = !isLoading && user != null,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = ArtifactTheme.colors.surfaceHearth,
-                            contentColor = ArtifactTheme.colors.onSurfaceMain,
-                            disabledContainerColor = ArtifactTheme.colors.surfaceHearth.copy(alpha = 0.5f),
-                            disabledContentColor = ArtifactTheme.colors.onSurfaceMuted.copy(alpha = 0.5f)
-                        ),
-                        border = BorderStroke(1.dp, ArtifactTheme.colors.waveformInactive),
-                        shape = MaterialTheme.shapes.medium,
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                        modifier = Modifier.defaultMinSize(minWidth = 88.dp, minHeight = 48.dp)
-                    ) {
-                        Text(
-                            text = "Customize Avatar",
                             style = MaterialTheme.typography.labelMedium,
                             fontWeight = FontWeight.SemiBold
                         )

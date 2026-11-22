@@ -4,6 +4,7 @@ import androidx.compose.runtime.Immutable
 import com.saurabh.artifact.model.AuthorSnapshot
 import com.saurabh.artifact.model.TranscriptSegment
 import com.saurabh.artifact.model.RecommendationState
+import com.saurabh.artifact.model.avatar.AvatarConfiguration
 import com.google.firebase.Timestamp
 
 /**
@@ -26,7 +27,8 @@ data class PlayerArtifact(
     val recommendationState: RecommendationState = RecommendationState.ACTIVE,
     val isPublic: Boolean,
     val isDraft: Boolean,
-    val episodeNumber: Long? = null
+    val episodeNumber: Long? = null,
+    val avatarConfig: AvatarConfiguration = AvatarConfiguration.DEFAULT
 ) {
     val effectiveEmotions: List<String>
         get() = emotions.ifEmpty { if (emotion.isNotBlank()) listOf(emotion) else emptyList() }

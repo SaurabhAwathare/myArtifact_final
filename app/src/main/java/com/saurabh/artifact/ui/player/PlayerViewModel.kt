@@ -211,7 +211,8 @@ class PlayerViewModel @Inject constructor(
                 sigilSeed = resolved.sigilSeed,
                 sigilColor = resolved.sigilColor,
                 sigilConfig = resolved.sigilConfig
-            )
+            ),
+            avatarConfig = resolved.avatarConfig
         )
         artifact to playerArtifact
     }

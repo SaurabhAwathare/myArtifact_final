@@ -53,7 +53,8 @@ import androidx.core.os.ConfigurationCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.saurabh.artifact.model.NotificationItem
 import com.saurabh.artifact.model.SigilConfig
-import com.saurabh.artifact.ui.components.ArtifactSigil
+import com.saurabh.artifact.model.avatar.AvatarConfiguration
+import com.saurabh.artifact.ui.components.ArtifactAvatar
 import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.ui.theme.Spacing
 import com.saurabh.artifact.ui.util.NotificationMapper
@@ -108,7 +109,7 @@ fun NotificationScreen(
             TopAppBar(
                 title = { 
                     Text(
-                        "Resonances",
+                        "Notifications",
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Light
                     ) 
@@ -173,14 +174,13 @@ fun NotificationScreen(
                     val actorId = notification.actorId ?: notification.followerId.takeIf { it.isNotBlank() }
                     val actorProfile = actorId?.let { uiState.actorProfiles[it] }
 
-                    val actorSigilConfig = actorProfile?.sigilConfig?.takeIf { it.seed.isNotBlank() }
-                        ?: actorProfile?.sigilSeed?.takeIf { it.isNotBlank() }?.let { SigilConfig(seed = it) }
-                        ?: actorProfile?.anonymousId?.takeIf { it.isNotBlank() }?.let { SigilConfig(seed = it) }
+                    val actorAvatarConfig = actorProfile?.avatarConfig?.withSafeFallbacks()
+                        ?: if (actorId != null) AvatarConfiguration.DEFAULT else null
 
                     NotificationCard(
                         notification = notification,
                         actorName = actorProfile?.anonymousName,
-                        actorSigilConfig = actorSigilConfig,
+                        actorAvatarConfig = actorAvatarConfig,
                         onClick = {
                             viewModel.markAsRead(notification.id)
                             onNotificationClick(notification)
@@ -215,6 +215,7 @@ fun NotificationCard(
     modifier: Modifier = Modifier,
     actorName: String? = null,
     actorSigilConfig: SigilConfig? = null,
+    actorAvatarConfig: AvatarConfiguration? = null,
     onClick: () -> Unit
 ) {
     val configuration = LocalConfiguration.current
@@ -226,6 +227,13 @@ fun NotificationCard(
     val presentation = remember(notification, actorName) {
         NotificationMapper.mapToPresentation(notification, actorName)
     }
+
+    val effectiveAvatarConfig = actorAvatarConfig
+        ?: if (actorSigilConfig != null || notification.actorId != null || notification.followerId.isNotBlank()) {
+            AvatarConfiguration.DEFAULT
+        } else {
+            null
+        }
 
     val unreadBorder = BorderStroke(1.dp, ArtifactTheme.colors.goldAura.copy(alpha = 0.35f))
     val readBorder = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
@@ -258,7 +266,7 @@ fun NotificationCard(
         ) {
             NotificationLeadingIcon(
                 presentation = presentation,
-                actorSigilConfig = actorSigilConfig
+                actorAvatarConfig = effectiveAvatarConfig
             )
 
             Spacer(modifier = Modifier.width(Spacing.Medium))
@@ -325,18 +333,18 @@ fun NotificationCard(
 @Composable
 private fun NotificationLeadingIcon(
     presentation: NotificationPresentation,
-    actorSigilConfig: SigilConfig?,
+    actorAvatarConfig: AvatarConfiguration?,
     modifier: Modifier = Modifier
 ) {
     Box(
         modifier = modifier.size(44.dp),
         contentAlignment = Alignment.Center
     ) {
-        if (actorSigilConfig != null && actorSigilConfig.seed.isNotBlank()) {
-            ArtifactSigil(
-                config = actorSigilConfig,
+        if (actorAvatarConfig != null) {
+            ArtifactAvatar(
+                config = actorAvatarConfig.withSafeFallbacks(),
                 size = 40.dp,
-                isStatic = true
+                contentDescription = "Notification actor avatar"
             )
             Box(
                 modifier = Modifier

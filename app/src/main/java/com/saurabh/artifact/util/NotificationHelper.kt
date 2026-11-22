@@ -64,8 +64,8 @@ object NotificationHelper {
     }
 
     const val CHANNEL_ID_INTERACTIONS = "interactions_channel"
-    const val CHANNEL_NAME_INTERACTIONS = "Resonances"
-    const val CHANNEL_DESC_INTERACTIONS = "Quiet notifications for reactions to your shared artifacts."
+    const val CHANNEL_NAME_INTERACTIONS = "Interactions"
+    const val CHANNEL_DESC_INTERACTIONS = "Notifications for reactions, comments, and activity on your shared artifacts."
 
     const val CHANNEL_ID_RESONANCES = "resonances_channel"
     const val CHANNEL_NAME_RESONANCES = "Connections"

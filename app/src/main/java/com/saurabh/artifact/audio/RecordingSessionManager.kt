@@ -11,6 +11,7 @@ import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.diagnostics.LogKeys
 import com.saurabh.artifact.repository.ArtifactPublishingRepository
 import com.saurabh.artifact.repository.RecordingRepository
+import com.saurabh.artifact.model.ArtifactLifecycle
 import dagger.Lazy
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.*
@@ -255,6 +256,74 @@ class RecordingSessionManager @Inject constructor(
         _activeDraft.value = null
         _reservationError.value = null
     }
+
+    suspend fun updateActiveDraftPrompt(newPromptId: String): Result<Unit> = sessionMutex.withLock {
+        val userId = userRepository.getCurrentUserId() ?: run {
+            diagnosticLogger.error(DiagnosticCategory.RECORDING, "UPDATE_DRAFT_PROMPT_FAILED_UNAUTHENTICATED")
+            return@withLock Result.failure(IllegalStateException("User unauthenticated"))
+        }
+
+        val draftId = _activeDraft.value?.id ?: _rawServiceState.value.draftId.takeIf { it.isNotEmpty() }
+        if (draftId.isNullOrEmpty()) {
+            return@withLock Result.success(Unit)
+        }
+
+        try {
+            val rowsUpdated = draftDao.get().updateDraftPromptId(
+                id = draftId,
+                userId = userId,
+                promptId = newPromptId,
+                expectedLifecycle = ArtifactLifecycle.RECORDING
+            )
+
+            if (rowsUpdated <= 0) {
+                diagnosticLogger.error(
+                    DiagnosticCategory.RECORDING,
+                    "UPDATE_DRAFT_PROMPT_FAILED_NO_ROWS",
+                    mapOf(LogKeys.DRAFT_ID to draftId, "userId" to userId, "promptId" to newPromptId)
+                )
+                return@withLock Result.failure(IllegalStateException("Failed to update prompt for draft $draftId (affected 0 rows)"))
+            }
+
+            val currentDraft = _activeDraft.value ?: draftDao.get().getDraftById(draftId, userId)
+            val updatedDraft = currentDraft?.copy(
+                promptId = newPromptId,
+                updatedAt = System.currentTimeMillis()
+            )
+            _activeDraft.value = updatedDraft
+
+            if (currentDraft != null) {
+                localDraftManager.writeManifest(
+                    draftId = draftId,
+                    userId = userId,
+                    createdAt = currentDraft.createdAt,
+                    mimeType = currentDraft.mimeType,
+                    title = currentDraft.title,
+                    emotion = currentDraft.emotion,
+                    emotions = currentDraft.emotions,
+                    promptId = newPromptId
+                )
+            }
+
+            diagnosticLogger.info(
+                DiagnosticCategory.RECORDING,
+                "ACTIVE_DRAFT_PROMPT_UPDATED",
+                mapOf(LogKeys.DRAFT_ID to draftId, "promptId" to newPromptId)
+            )
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            diagnosticLogger.error(
+                DiagnosticCategory.RECORDING,
+                "UPDATE_DRAFT_PROMPT_EXCEPTION",
+                mapOf(LogKeys.DRAFT_ID to draftId, "promptId" to newPromptId),
+                e
+            )
+            Result.failure(e)
+        }
+    }
+
+    fun getActiveDraft(): ArtifactDraftEntity? = _activeDraft.value
 
     fun isRecordingActive(): Boolean {
         val status = _rawServiceState.value.status

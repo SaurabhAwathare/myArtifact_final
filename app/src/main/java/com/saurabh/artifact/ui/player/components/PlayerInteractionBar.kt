@@ -161,7 +161,7 @@ private fun ResonateInteractionItem(
                 if (isResonated && showCount) activeColor.copy(alpha = 0.08f) else Color.Transparent
             )
     ) {
-        // 1. Resonate GraphicEq Toggle Target (At least 48dp x 48dp)
+        // 1. Resonate Heart Toggle Target (At least 48dp x 48dp)
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
@@ -183,7 +183,7 @@ private fun ResonateInteractionItem(
                 }
         ) {
             Icon(
-                imageVector = Icons.Rounded.GraphicEq,
+                imageVector = if (isResonated) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder,
                 contentDescription = resonateContentDescription,
                 tint = animatedContentColor,
                 modifier = Modifier.size(28.dp)

@@ -17,7 +17,8 @@ import com.saurabh.artifact.model.AuthorSnapshot
 import com.saurabh.artifact.model.Comment
 import com.saurabh.artifact.model.CommentStatus
 import com.saurabh.artifact.model.ResolvedCreatorIdentity
-import com.saurabh.artifact.ui.components.ArtifactSigil
+import com.saurabh.artifact.model.avatar.AvatarConfiguration
+import com.saurabh.artifact.ui.components.ArtifactAvatar
 import com.saurabh.artifact.ui.theme.ArtifactTheme
 import com.saurabh.artifact.ui.theme.Spacing
 import com.saurabh.artifact.util.TimeUtils
@@ -40,9 +41,8 @@ fun CommentItem(
     resolvedIdentity: ResolvedCreatorIdentity? = null
 ) {
     val displayName = resolvedIdentity?.name ?: comment.author.name.ifBlank { ResolvedCreatorIdentity.NEUTRAL_NAME }
-    val displaySigil = resolvedIdentity?.sigil ?: comment.author.sigil
-    val displaySigilConfig = resolvedIdentity?.sigilConfig ?: comment.author.sigilConfig
     val personaId = resolvedIdentity?.personaId?.ifEmpty { comment.author.anonymousId } ?: comment.author.anonymousId
+    val avatarConfig = (resolvedIdentity?.avatarConfig ?: AvatarConfiguration.DEFAULT).withSafeFallbacks()
 
     Row(
         modifier = modifier
@@ -50,10 +50,10 @@ fun CommentItem(
             .padding(vertical = Spacing.Small, horizontal = Spacing.Large),
         horizontalArrangement = Arrangement.spacedBy(Spacing.Medium)
     ) {
-        ArtifactSigil(
-            config = displaySigilConfig,
+        ArtifactAvatar(
+            config = avatarConfig,
             size = 36.dp,
-            isStatic = true,
+            contentDescription = "Comment author avatar",
             modifier = Modifier.clickable { onProfileClick(personaId) }
         )
 
@@ -69,14 +69,6 @@ fun CommentItem(
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.clickable { onProfileClick(personaId) }
                 )
-                
-                if (displaySigil.isNotEmpty()) {
-                    Text(
-                        text = displaySigil,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                    )
-                }
 
                 Spacer(modifier = Modifier.weight(1f))
 

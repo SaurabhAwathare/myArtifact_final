@@ -65,6 +65,7 @@ class LogoutCoordinator @Inject constructor(
     private val promptRepository: Lazy<PromptRepository>,
     private val diagnosticLogger: DiagnosticLogger,
     private val diagnosticSessionManager: SessionManager? = null,
+    private val promptSyncRepository: Lazy<com.saurabh.artifact.repository.PromptSyncRepository>? = null,
 ) {
 
     // Dispatchers can be overridden for testing
@@ -523,6 +524,14 @@ class LogoutCoordinator @Inject constructor(
                 throw e
             } catch (e: Exception) {
                 diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_PROMPT_SYNC_FAILED", throwable = e)
+            }
+
+            try {
+                promptSyncRepository?.get()?.resetHydrationState()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                diagnosticLogger.error(DiagnosticCategory.AUTH, "LOGOUT_CLEAR_PROMPT_HYDRATION_FAILED", throwable = e)
             }
         } else {
             diagnosticLogger.warn(DiagnosticCategory.AUTH, "LOGOUT_SKIP_DATASTORE_CLEAR", mapOf("reason" to "DB cleanup failed"))

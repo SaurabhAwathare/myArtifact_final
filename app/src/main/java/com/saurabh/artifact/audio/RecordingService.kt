@@ -402,9 +402,9 @@ class RecordingService : Service() {
                     draftId = finalDraftId
                 )
                 
-                draft?.let {
-                    draftDao.get().update(it.copy(
-                        status = it.status.copy(publication = SyncStatus.LocalOnly),
+                draftDao.get().internalGetDraftByIdAgnostic(finalDraftId)?.let { latestDraft ->
+                    draftDao.get().update(latestDraft.copy(
+                        status = latestDraft.status.copy(publication = SyncStatus.LocalOnly),
                         lifecycle = ArtifactLifecycle.RECORDING
                     ))
                 }

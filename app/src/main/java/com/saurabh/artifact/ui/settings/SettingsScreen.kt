@@ -79,9 +79,11 @@ fun SettingsScreen(
     onBackClick: () -> Unit,
     onLogoutSuccess: () -> Unit,
     onNavigateToIdentity: () -> Unit = {},
-    onNavigateToSigilRitual: () -> Unit = {},
-    viewModel: SettingsViewModel = hiltViewModel()
+    onCustomizeAvatar: () -> Unit = onNavigateToIdentity,
+    viewModel: SettingsViewModel = hiltViewModel(),
+    onNavigateToSigilRitual: (() -> Unit)? = null
 ) {
+    val handleAvatarClick = onNavigateToSigilRitual ?: onCustomizeAvatar
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val anonymousIdentity by viewModel.anonymousIdentity.collectAsStateWithLifecycle()
     val accountInfo by viewModel.accountInfo.collectAsStateWithLifecycle()
@@ -193,6 +195,7 @@ fun SettingsScreen(
                     SettingsIdentityItem(
                         state = anonymousIdentity,
                         onEditIdentity = onNavigateToIdentity,
+                        onCustomizeAvatar = handleAvatarClick,
                         onEditSigil = onNavigateToSigilRitual
                     )
 

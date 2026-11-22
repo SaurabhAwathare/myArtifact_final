@@ -16,6 +16,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -58,8 +59,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -83,6 +86,7 @@ import com.saurabh.artifact.ui.theme.Obsidian900
 import com.saurabh.artifact.ui.theme.Obsidian950
 import com.saurabh.artifact.ui.theme.ReflectionWhite
 import com.saurabh.artifact.ui.theme.StatusWarning
+import com.saurabh.artifact.ui.theme.WarningRed
 
 private fun Context.findActivity(): Activity? {
     var current = this
@@ -102,6 +106,7 @@ fun PreRecordingWarningScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    val view = LocalView.current
     val activity = remember(context) { context.findActivity() }
     val lifecycleOwner = LocalLifecycleOwner.current
 
@@ -120,10 +125,31 @@ fun PreRecordingWarningScreen(
     var hasBegunRecording by remember { mutableStateOf(false) }
     var pendingProceedAfterPermission by remember { mutableStateOf(false) }
 
-    // Re-check permission on app resume (e.g. after returning from Android Settings)
+    val startAnnouncement = stringResource(R.string.pre_recording_announcement_start)
+    val completeAnnouncement = stringResource(R.string.pre_recording_announcement_complete)
+
+    // Accessibility announcements: initial guideline guidance and completion announcement
+    LaunchedEffect(Unit) {
+        viewModel.triggerInitialAnnouncement {
+            @Suppress("DEPRECATION")
+            view.announceForAccessibility(startAnnouncement)
+        }
+    }
+
+    LaunchedEffect(uiState.remainingSeconds) {
+        if (uiState.remainingSeconds == 0) {
+            viewModel.triggerCompletionAnnouncement {
+                @Suppress("DEPRECATION")
+                view.announceForAccessibility(completeAnnouncement)
+            }
+        }
+    }
+
+    // Re-check permission and sync countdown on app resume (e.g. after returning from Android Settings or background)
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.syncCountdown()
                 val granted = ContextCompat.checkSelfPermission(
                     context,
                     Manifest.permission.RECORD_AUDIO
@@ -201,9 +227,10 @@ fun PreRecordingWarningScreen(
     }
 
     // Screen departure guard: ensures ritual is cancelled if dismissed without recording
+    // Do not cancel if screen disposal is due to configuration changes (e.g. rotation)
     DisposableEffect(Unit) {
         onDispose {
-            if (!hasBegunRecording) {
+            if (!hasBegunRecording && (activity?.isChangingConfigurations != true)) {
                 viewModel.cancel()
             }
         }
@@ -211,7 +238,7 @@ fun PreRecordingWarningScreen(
 
     // Primary action handler: "Begin Recording"
     val handleBeginRecording = {
-        if (!isStartingRecording && !uiState.isStorageCritical) {
+        if (!isStartingRecording && !uiState.isStorageCritical && uiState.remainingSeconds <= 0) {
             val audioGranted = ContextCompat.checkSelfPermission(
                 context,
                 Manifest.permission.RECORD_AUDIO
@@ -370,7 +397,7 @@ fun PreRecordingWarningContent(
     isStartingRecording: Boolean = false,
     isPermissionPermanentlyDenied: Boolean = false
 ) {
-    // Restrained, subtle GoldAura atmospheric glow (Hearth ambiance, no aggressive red)
+    // Restrained, subtle crimson atmospheric glow (no aggressive flashing or solid red)
     val infiniteTransition = rememberInfiniteTransition(label = "Atmosphere")
     val glowAlpha by infiniteTransition.animateFloat(
         initialValue = 0.03f,
@@ -394,7 +421,7 @@ fun PreRecordingWarningContent(
                 .background(
                     brush = Brush.verticalGradient(
                         colors = listOf(
-                            GoldAura500.copy(alpha = glowAlpha),
+                            WarningRed.copy(alpha = glowAlpha),
                             Obsidian950
                         )
                     )
@@ -404,7 +431,7 @@ fun PreRecordingWarningContent(
                 modifier = Modifier
                     .fillMaxSize()
                     .verticalScroll(scrollState)
-                    .padding(horizontal = 28.dp),
+                    .padding(horizontal = 24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 // 1. TOP BAR: Back / Close Button (minimum 48dp touch target)
@@ -428,27 +455,31 @@ fun PreRecordingWarningContent(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // 2. CALM PROTECTIVE ICONOGRAPHY
+                // 2. CALM PROTECTIVE ICONOGRAPHY (WarningRed restrained accent)
                 Icon(
                     imageVector = Icons.Default.Shield,
                     contentDescription = null,
-                    tint = GoldAura500,
+                    tint = WarningRed,
                     modifier = Modifier.size(44.dp)
                 )
 
                 Spacer(modifier = Modifier.height(18.dp))
 
-                // 3. HEADLINE
+                // 3. RESPONSIVE HEADLINE (Approx 28sp typography, 34sp line height, no forced single-line truncation)
                 Text(
                     text = stringResource(R.string.pre_recording_headline),
                     style = MaterialTheme.typography.displayMedium.copy(
                         fontFamily = ManropeFont,
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 32.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 28.sp,
+                        lineHeight = 34.sp,
                         letterSpacing = (-0.5).sp
                     ),
                     color = ReflectionWhite,
-                    textAlign = TextAlign.Center
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .semantics { heading() }
                 )
 
                 Spacer(modifier = Modifier.height(8.dp))
@@ -485,11 +516,11 @@ fun PreRecordingWarningContent(
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // 7. PRIVACY GUIDANCE CARD (Obsidian800, CardShape 16dp, Obsidian700 border)
+                // 7. PRIVACY GUIDANCE CARD (Restrained red-tinted border, WarningRed heading and bullets)
                 Surface(
                     color = Obsidian800,
                     shape = CardShape,
-                    border = BorderStroke(1.dp, Obsidian700),
+                    border = BorderStroke(1.dp, WarningRed.copy(alpha = 0.35f)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
@@ -503,7 +534,8 @@ fun PreRecordingWarningContent(
                                 fontWeight = FontWeight.SemiBold,
                                 fontSize = 18.sp
                             ),
-                            color = GoldAura500
+                            color = WarningRed,
+                            modifier = Modifier.semantics { heading() }
                         )
                         Spacer(modifier = Modifier.height(14.dp))
 
@@ -512,7 +544,7 @@ fun PreRecordingWarningContent(
                             stringResource(R.string.pre_recording_warning_item_phone_number),
                             stringResource(R.string.pre_recording_warning_item_address),
                             stringResource(R.string.pre_recording_warning_item_workplace),
-                            stringResource(R.string.pre_recording_warning_item_location)
+                            stringResource(R.string.pre_recording_warning_item_confidential)
                         )
 
                         sensitiveItems.forEach { item ->
@@ -525,7 +557,7 @@ fun PreRecordingWarningContent(
                                 Box(
                                     modifier = Modifier
                                         .size(6.dp)
-                                        .background(GoldAura500.copy(alpha = 0.7f), CircleShape)
+                                        .background(WarningRed, CircleShape)
                                 )
                                 Spacer(modifier = Modifier.width(14.dp))
                                 Text(
@@ -544,7 +576,7 @@ fun PreRecordingWarningContent(
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // 8. STATIC CALM BREATHING SUGGESTION & EMOTIONAL REASSURANCE (No mandatory timer)
+                // 8. VISUALLY CALM REASSURANCE SECTION
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center,
@@ -555,7 +587,7 @@ fun PreRecordingWarningContent(
                     Icon(
                         imageVector = Icons.Default.Favorite,
                         contentDescription = null,
-                        tint = GoldAura500.copy(alpha = 0.5f),
+                        tint = MistGray.copy(alpha = 0.6f),
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(10.dp))
@@ -585,41 +617,96 @@ fun PreRecordingWarningContent(
                     modifier = Modifier.padding(horizontal = 12.dp)
                 )
 
-                Spacer(modifier = Modifier.height(32.dp))
+                Spacer(modifier = Modifier.height(28.dp))
 
-                // 10. PRIMARY ACTION: "Begin Recording"
-                // Minimum 56dp height, CardShape 16dp, clear high contrast, min 48dp touch target
-                val isButtonEnabled = !uiState.isStorageCritical && !isStartingRecording
-
-                Button(
-                    onClick = onBeginRecording,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp)
-                        .semantics {
-                            contentDescription = "Begin Recording"
-                        },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = ReflectionWhite,
-                        contentColor = Obsidian950,
-                        disabledContainerColor = Obsidian800,
-                        disabledContentColor = MistGray.copy(alpha = 0.4f)
-                    ),
-                    shape = CardShape,
-                    enabled = isButtonEnabled
-                ) {
-                    Text(
-                        text = stringResource(R.string.action_begin_recording),
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontFamily = ManropeFont,
-                            fontWeight = FontWeight.SemiBold
-                        )
+                // 10. COUNTDOWN INDICATOR OR PRIMARY ACTION
+                if (uiState.remainingSeconds > 0) {
+                    CountdownIndicator(
+                        remainingSeconds = uiState.remainingSeconds
                     )
+                } else {
+                    val isButtonEnabled = !uiState.isStorageCritical && !isStartingRecording
+
+                    Button(
+                        onClick = onBeginRecording,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp)
+                            .semantics {
+                                contentDescription = "Begin Recording"
+                            },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = ReflectionWhite,
+                            contentColor = Obsidian950,
+                            disabledContainerColor = Obsidian800,
+                            disabledContentColor = MistGray.copy(alpha = 0.4f)
+                        ),
+                        shape = CardShape,
+                        enabled = isButtonEnabled
+                    ) {
+                        Text(
+                            text = stringResource(R.string.action_begin_recording),
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontFamily = ManropeFont,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(32.dp))
             }
         }
+    }
+}
+
+@Composable
+fun CountdownIndicator(
+    remainingSeconds: Int,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(
+            modifier = Modifier
+                .size(64.dp)
+                .background(
+                    color = WarningRed.copy(alpha = 0.12f),
+                    shape = CircleShape
+                )
+                .border(
+                    width = 2.dp,
+                    color = WarningRed.copy(alpha = 0.4f),
+                    shape = CircleShape
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = remainingSeconds.toString(),
+                style = MaterialTheme.typography.headlineMedium.copy(
+                    fontFamily = ManropeFont,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 28.sp
+                ),
+                color = WarningRed,
+                textAlign = TextAlign.Center
+            )
+        }
+        Spacer(modifier = Modifier.height(10.dp))
+        Text(
+            text = stringResource(R.string.pre_recording_countdown_pause),
+            style = MaterialTheme.typography.bodyMedium.copy(
+                fontFamily = ManropeFont,
+                fontWeight = FontWeight.Normal,
+                fontSize = 14.sp
+            ),
+            color = MistGray,
+            textAlign = TextAlign.Center
+        )
     }
 }
 
@@ -753,7 +840,7 @@ fun PreRecordingWarningScreenPreview() {
     ArtifactTheme {
         PreRecordingWarningContent(
             uiState = PreRecordingWarningUiState(
-                remainingSeconds = 0,
+                remainingSeconds = 10,
                 isStorageLow = false,
                 isStorageCritical = false
             ),

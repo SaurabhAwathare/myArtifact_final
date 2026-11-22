@@ -9,7 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.FavoriteBorder
+import androidx.compose.material.icons.rounded.FavoriteBorder
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -82,7 +82,7 @@ fun ResonanceDisplay(
                     .padding(horizontal = 6.dp, vertical = 4.dp)
             ) {
                 Icon(
-                    imageVector = Icons.Outlined.FavoriteBorder,
+                    imageVector = Icons.Rounded.FavoriteBorder,
                     contentDescription = null,
                     tint = ArtifactTheme.colors.onSurfaceAura,
                     modifier = Modifier.size(14.dp)

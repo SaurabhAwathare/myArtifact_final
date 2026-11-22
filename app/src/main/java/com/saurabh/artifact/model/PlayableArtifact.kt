@@ -1,6 +1,7 @@
 package com.saurabh.artifact.model
 
 import com.saurabh.artifact.data.local.ArtifactDraftEntity
+import com.saurabh.artifact.model.avatar.AvatarConfiguration
 
 /**
  * A unified model that represents any artifact that can be played by the Global Player.
@@ -19,7 +20,8 @@ data class PlayableArtifact(
     val emotions: List<String> = emptyList(),
     val originalArtifact: Artifact? = null,
     val originalDraft: ArtifactDraftEntity? = null,
-    val episodeNumber: Long? = null
+    val episodeNumber: Long? = null,
+    val avatarConfig: AvatarConfiguration = AvatarConfiguration.DEFAULT
 ) {
     val effectiveEmotions: List<String>
         get() = emotions.ifEmpty { if (emotion.isNotBlank()) listOf(emotion) else emptyList() }

@@ -7,7 +7,6 @@ import androidx.navigation.toRoute
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import com.saurabh.artifact.diagnostics.DiagnosticLogger
 import com.saurabh.artifact.navigation.*
-import com.saurabh.artifact.ui.sigil.SigilRitualScreen
 import com.saurabh.artifact.ui.identity.IdentitySelectionScreen
 import com.saurabh.artifact.ui.moderation.ModerationScreen
 import com.saurabh.artifact.ui.profile.ProfileScreen
@@ -34,10 +33,6 @@ fun NavGraphBuilder.profileNavigation(
         navController.navigate(Settings)
     }
 
-    val onNavigateToSigilRitual = {
-        navController.navigate(SigilRitual)
-    }
-
     val onNavigateToAvatarCreator = {
         navController.navigate(AvatarCreator) {
             launchSingleTop = true
@@ -60,7 +55,6 @@ fun NavGraphBuilder.profileNavigation(
         ProfileScreen(
             onBack = onBack,
             onEditIdentity = onNavigateToIdentity,
-            onCustomizeAvatar = onNavigateToAvatarCreator,
             onNavigateToSettings = onNavigateToSettings,
             onNavigateToReview = { draftId ->
                 navController.navigate(PublishingStudio(draftId))
@@ -94,7 +88,7 @@ fun NavGraphBuilder.profileNavigation(
             onBackClick = onBack,
             onLogoutSuccess = onLogout,
             onNavigateToIdentity = onNavigateToIdentity,
-            onNavigateToSigilRitual = onNavigateToSigilRitual
+            onCustomizeAvatar = onNavigateToIdentity
         )
     }
 
@@ -113,13 +107,7 @@ fun NavGraphBuilder.profileNavigation(
         IdentitySelectionScreen(
             onComplete = onBack,
             onBack = onBack,
-            onEditSigil = onNavigateToSigilRitual
-        )
-    }
-
-    composable<SigilRitual> {
-        SigilRitualScreen(
-            onNavigateBack = onBack
+            onCustomizeAvatar = onNavigateToAvatarCreator
         )
     }
 

@@ -30,6 +30,7 @@ class PromptRepository @Inject constructor(
     private val promptDao: Lazy<PromptDao>,
     private val userConsumedPromptDao: Lazy<UserConsumedPromptDao>,
     @param:ApplicationContext private val context: Context,
+    private val promptSyncRepository: Lazy<PromptSyncRepository>? = null,
 ) {
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -38,6 +39,8 @@ class PromptRepository @Inject constructor(
 
     @Volatile
     private var approvedPromptsMap: Map<String, ReflectionPrompt> = emptyMap()
+
+    fun isApprovedMapLoaded(): Boolean = approvedPromptsMap.isNotEmpty()
 
     fun isApprovedPromptId(id: String): Boolean {
         return approvedPromptsMap.containsKey(id)
@@ -366,6 +369,20 @@ class PromptRepository @Inject constructor(
 
     fun resetSyncState() {
         isSynced = false
+    }
+
+    suspend fun ensureHydrated(userId: String): PromptHydrationState {
+        return promptSyncRepository?.get()?.ensureHydrated(userId)
+            ?: PromptHydrationState.Hydrated(userId, 0, isEmptyDocument = true)
+    }
+
+    fun getHydrationState(userId: String): PromptHydrationState {
+        return promptSyncRepository?.get()?.getHydrationState(userId)
+            ?: PromptHydrationState.NotStarted
+    }
+
+    fun resetHydrationState(userId: String? = null) {
+        promptSyncRepository?.get()?.resetHydrationState(userId)
     }
 
     suspend fun initializeIfEmpty() = syncPromptsFromAsset()

@@ -717,7 +717,8 @@ open class UserRepository @Inject constructor(
                         anonymousName = profileDoc.getString("name") ?: "",
                         anonymousSigil = profileDoc.getString("sigil") ?: "",
                         sigilSeed = profileDoc.getString("sigilSeed") ?: "",
-                        sigilColor = profileDoc.getString("sigilColor") ?: "#FFD700"
+                        sigilColor = profileDoc.getString("sigilColor") ?: "#FFD700",
+                        avatarConfig = decodeAvatarConfig(profileDoc.get("avatarConfig"))
                     )
                 }
             }
@@ -820,7 +821,8 @@ open class UserRepository @Inject constructor(
                         anonymousName = doc.getString("name") ?: "",
                         anonymousSigil = doc.getString("sigil") ?: "",
                         sigilSeed = doc.getString("sigilSeed") ?: "",
-                        sigilColor = doc.getString("sigilColor") ?: "#FFD700"
+                        sigilColor = doc.getString("sigilColor") ?: "#FFD700",
+                        avatarConfig = decodeAvatarConfig(doc.get("avatarConfig"))
                     )
                     if (u.anonymousName.isNotBlank()) fetchedUsers.add(u)
                 }
@@ -942,6 +944,10 @@ open class UserRepository @Inject constructor(
         )
     }
 
+    internal fun decodeAvatarConfig(raw: Any?): AvatarConfiguration {
+        return AvatarConfiguration.fromMap(raw)
+    }
+
     fun streamPublicProfile(personaId: String): Flow<User?> = callbackFlow<User?> {
         if (personaId.isBlank()) {
             trySend(null)
@@ -963,7 +969,8 @@ open class UserRepository @Inject constructor(
                     resonanceInCount = snapshot.getLong("resonanceInCount") ?: 0L,
                     resonanceOutCount = snapshot.getLong("resonanceOutCount") ?: 0L,
                     followersCount = snapshot.getLong("followersCount") ?: 0L,
-                    followingCount = snapshot.getLong("followingCount") ?: 0L
+                    followingCount = snapshot.getLong("followingCount") ?: 0L,
+                    avatarConfig = decodeAvatarConfig(snapshot.get("avatarConfig"))
                 )
                 trySend(user)
             } else {
@@ -1000,7 +1007,8 @@ open class UserRepository @Inject constructor(
                         resonanceInCount = snapshot.getLong("resonanceInCount") ?: 0L,
                         resonanceOutCount = snapshot.getLong("resonanceOutCount") ?: 0L,
                         followersCount = snapshot.getLong("followersCount") ?: 0L,
-                        followingCount = snapshot.getLong("followingCount") ?: 0L
+                        followingCount = snapshot.getLong("followingCount") ?: 0L,
+                        avatarConfig = decodeAvatarConfig(snapshot.get("avatarConfig"))
                     )
                     trySend(user)
                 } else {
@@ -1022,7 +1030,12 @@ open class UserRepository @Inject constructor(
 
             if (snapshot != null && snapshot.exists()) {
                 try {
-                    val user = snapshot.toObject(User::class.java)?.copy(id = snapshot.id)
+                    val rawAvatar = snapshot.get("avatarConfig")
+                    val avatarConfig = rawAvatar?.let { decodeAvatarConfig(it) }
+                    val user = snapshot.toObject(User::class.java)?.copy(
+                        id = snapshot.id,
+                        avatarConfig = avatarConfig ?: snapshot.toObject(User::class.java)?.avatarConfig
+                    )
                     trySend(user)
                 } catch (_: Exception) {
                     trySend(null)
@@ -1839,7 +1852,8 @@ open class UserRepository @Inject constructor(
                                 resonanceInCount = doc.getLong("resonanceInCount") ?: 0L,
                                 resonanceOutCount = doc.getLong("resonanceOutCount") ?: 0L,
                                 followersCount = doc.getLong("followersCount") ?: 0L,
-                                followingCount = doc.getLong("followingCount") ?: 0L
+                                followingCount = doc.getLong("followingCount") ?: 0L,
+                                avatarConfig = decodeAvatarConfig(doc.get("avatarConfig"))
                             )
                         })
                     }
@@ -1875,7 +1889,8 @@ open class UserRepository @Inject constructor(
                         resonanceInCount = (map["resonanceInCount"] as? Number)?.toLong() ?: 0L,
                         resonanceOutCount = (map["resonanceOutCount"] as? Number)?.toLong() ?: 0L,
                         followersCount = (map["followersCount"] as? Number)?.toLong() ?: 0L,
-                        followingCount = (map["followingCount"] as? Number)?.toLong() ?: 0L
+                        followingCount = (map["followingCount"] as? Number)?.toLong() ?: 0L,
+                        avatarConfig = decodeAvatarConfig(map["avatarConfig"])
                     )
                 } ?: emptyList()
 
@@ -1935,7 +1950,8 @@ open class UserRepository @Inject constructor(
                             resonanceInCount = doc.getLong("resonanceInCount") ?: 0L,
                             resonanceOutCount = doc.getLong("resonanceOutCount") ?: 0L,
                             followersCount = doc.getLong("followersCount") ?: 0L,
-                            followingCount = doc.getLong("followingCount") ?: 0L
+                            followingCount = doc.getLong("followingCount") ?: 0L,
+                            avatarConfig = decodeAvatarConfig(doc.get("avatarConfig"))
                         )
                     }
                     users.addAll(foundUsers)

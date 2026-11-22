@@ -33,7 +33,6 @@ fun ProfileScreen(
     onEditIdentity: () -> Unit,
     onNavigateToSettings: () -> Unit,
     onNavigateToReview: (String) -> Unit,
-    onCustomizeAvatar: () -> Unit = {},
     onNavigateToPublish: (String) -> Unit = {},
     onNavigateToResonanceList: (String, String, String) -> Unit = { _, _, _ -> },
     onNavigateToArtifactResonators: ((String, Boolean) -> Unit)? = null,
@@ -42,6 +41,11 @@ fun ProfileScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val savedIds by viewModel.savedIds.collectAsStateWithLifecycle(emptySet())
     val savedArtifacts = viewModel.savedArtifacts.collectAsLazyPagingItems()
+    val savedCreatorProfiles by viewModel.savedCreatorProfiles.collectAsStateWithLifecycle()
+
+    LaunchedEffect(savedArtifacts.itemSnapshotList.items) {
+        viewModel.resolveSavedCreators(savedArtifacts.itemSnapshotList.items)
+    }
     
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
@@ -140,7 +144,6 @@ fun ProfileScreen(
                             isResonating = uiState.isResonating,
                             onResonateClick = { viewModel.toggleResonance() },
                             onEditClick = onEditIdentity,
-                            onCustomizeAvatar = onCustomizeAvatar,
                             onResonatorsClick = {
                                 uiState.userProfile?.id?.let { id ->
                                     onNavigateToResonanceList(id, "resonance_in", "Resonators")
@@ -240,7 +243,8 @@ fun ProfileScreen(
                                     },
                                     onLoadMore = { viewModel.loadMorePublished() },
                                     isLoadingMore = uiState.isMorePublishedLoading,
-                                    hasMore = uiState.hasMorePublished
+                                    hasMore = uiState.hasMorePublished,
+                                    creatorProfile = if (!uiState.isSelf) uiState.userProfile else null
                                 )
                             }
                         }
@@ -326,7 +330,8 @@ fun ProfileScreen(
                                     { artifact ->
                                         cb(artifact.id, artifact.userId == viewModel.currentUserId || uiState.isSelf)
                                     }
-                                }
+                                },
+                                creatorProfiles = savedCreatorProfiles
                             )
                         }
                     }

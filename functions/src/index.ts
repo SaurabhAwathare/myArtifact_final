@@ -16,6 +16,7 @@ import {
 } from "./session";
 import { resolveStorageBucket } from "./util/storage";
 import { processNotificationDelivery, recoverExpiredNotificationLeases } from "./notification_delivery";
+import { resolveAvatarConfiguration } from "./util/validation/avatar";
 export { resolveStorageBucket };
 
 if (!admin.apps.length) {
@@ -1395,6 +1396,8 @@ export const onUserProfileUpdated = functions
       ? newData.identityMetadata.identityResetVersion
       : 0;
 
+    const resolvedAvatarConfig = resolveAvatarConfiguration(newData.avatarConfig);
+
     const profileData = {
       id: anonymousId,
       name: newData.anonymousName || "quiet presence",
@@ -1407,6 +1410,7 @@ export const onUserProfileUpdated = functions
       followersCount: newData.followersCount || 0,
       followingCount: newData.followingCount || 0,
       identityVersion: incomingIdentityVersion,
+      avatarConfig: resolvedAvatarConfig,
       updatedAt: eventTimestamp,
     };
 
@@ -4091,6 +4095,7 @@ export const getPublicResonators = functions
               artifactsCount: pData.artifactsCount || 0,
               resonanceInCount: pData.resonanceInCount || 0,
               followersCount: pData.followersCount || 0,
+              avatarConfig: resolveAvatarConfiguration(pData.avatarConfig),
             });
           }
         }

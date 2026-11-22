@@ -53,8 +53,11 @@ class PlayableArtifactRepository @Inject constructor(
                 it.lifecycle != ArtifactLifecycle.DELETED
             }
             if (draft != null) {
-                val author = userRepository.getCachedProfile()?.let { AuthorSnapshot.fromUser(it) } 
+                val cachedProfile = userRepository.getCachedProfile()
+                val author = cachedProfile?.let { AuthorSnapshot.fromUser(it) } 
                     ?: AuthorSnapshot(name = "You")
+                val draftAvatar = cachedProfile?.avatarConfig?.withSafeFallbacks()
+                    ?: com.saurabh.artifact.model.avatar.AvatarConfiguration.DEFAULT
                 
                 val artifact = draftToArtifactMapper.map(draft, author, "Untitled Artifact")
                 
@@ -70,7 +73,8 @@ class PlayableArtifactRepository @Inject constructor(
                         sourceType = source,
                         emotion = artifact.emotion,
                         originalDraft = draft,
-                        episodeNumber = artifact.episodeNumber ?: draft.episodeNumber
+                        episodeNumber = artifact.episodeNumber ?: draft.episodeNumber,
+                        avatarConfig = draftAvatar
                     )
                 )
             }
@@ -119,7 +123,8 @@ class PlayableArtifactRepository @Inject constructor(
                             sourceType = source,
                             emotion = artifact.emotion,
                             originalArtifact = artifact,
-                            episodeNumber = artifact.episodeNumber
+                            episodeNumber = artifact.episodeNumber,
+                            avatarConfig = resolved.avatarConfig
                         )
                     )
                 }
