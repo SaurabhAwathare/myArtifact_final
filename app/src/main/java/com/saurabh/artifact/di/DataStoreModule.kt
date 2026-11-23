@@ -16,6 +16,7 @@ private val Context.sessionDataStore: DataStore<Preferences> by preferencesDataS
 private val Context.debugDataStore: DataStore<Preferences> by preferencesDataStore(name = "debug_settings")
 private val Context.maintenanceDataStore: DataStore<Preferences> by preferencesDataStore(name = "maintenance_settings")
 private val Context.dbEncryptionDataStore: DataStore<Preferences> by preferencesDataStore(name = "db_encryption_prefs")
+private val Context.promptDataStore: DataStore<Preferences> by preferencesDataStore(name = "prompt_sync_prefs")
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -47,5 +48,12 @@ object DataStoreModule {
     @Named("dbEncryptionDataStore")
     fun provideDbEncryptionDataStore(@ApplicationContext context: Context): DataStore<Preferences> {
         return context.dbEncryptionDataStore
+    }
+
+    @Provides
+    @Singleton
+    @Named("promptDataStore")
+    fun providePromptDataStore(@ApplicationContext context: Context): DataStore<Preferences> {
+        return context.promptDataStore
     }
 }

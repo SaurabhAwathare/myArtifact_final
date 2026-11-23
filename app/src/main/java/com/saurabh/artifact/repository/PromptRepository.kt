@@ -371,14 +371,18 @@ class PromptRepository @Inject constructor(
         isSynced = false
     }
 
-    suspend fun ensureHydrated(userId: String): PromptHydrationState {
-        return promptSyncRepository?.get()?.ensureHydrated(userId)
+    suspend fun ensureHydrated(userId: String, forceRefresh: Boolean = false): PromptHydrationState {
+        return promptSyncRepository?.get()?.ensureHydrated(userId, forceRefresh = forceRefresh)
             ?: PromptHydrationState.Hydrated(userId, 0, isEmptyDocument = true)
     }
 
     fun getHydrationState(userId: String): PromptHydrationState {
         return promptSyncRepository?.get()?.getHydrationState(userId)
             ?: PromptHydrationState.NotStarted
+    }
+
+    suspend fun isHydrationEstablished(userId: String): Boolean {
+        return promptSyncRepository?.get()?.isHydrationEstablished(userId) ?: false
     }
 
     fun resetHydrationState(userId: String? = null) {

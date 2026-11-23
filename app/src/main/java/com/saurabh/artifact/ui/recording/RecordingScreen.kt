@@ -334,6 +334,7 @@ fun RecordingScreen(
             innerPadding = innerPadding,
             glowAlpha = glowAlpha,
             onNextPrompt = { viewModel.nextPrompt() },
+            onRetryPrompt = { viewModel.retryPromptHydration() },
             onPrimaryActionClick = { currentRequestPermission() },
             onPauseClick = { viewModel.pauseRecording() },
             onResumeClick = { viewModel.resumeRecording() },
@@ -354,6 +355,7 @@ fun RecordingScreenContent(
     innerPadding: PaddingValues = PaddingValues(0.dp),
     glowAlpha: Float = 0.1f,
     onNextPrompt: () -> Unit = {},
+    onRetryPrompt: () -> Unit = {},
     onPrimaryActionClick: () -> Unit = {},
     onPauseClick: () -> Unit = {},
     onResumeClick: () -> Unit = onPauseClick,
@@ -587,6 +589,59 @@ fun RecordingScreenContent(
                                         textAlign = TextAlign.Start
                                     )
                                 }
+                            } else if (uiState.showPromptRetry) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = promptHorizontalPadding)
+                                        .verticalScroll(rememberScrollState()),
+                                    horizontalAlignment = Alignment.Start,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    Text(
+                                        text = "Unable to retrieve your reflection history.",
+                                        style = MaterialTheme.typography.displayMedium.copy(
+                                            fontWeight = FontWeight.Light,
+                                            fontSize = promptFontSize
+                                        ),
+                                        color = Color.White,
+                                        textAlign = TextAlign.Start,
+                                        lineHeight = promptLineHeight
+                                    )
+
+                                    Spacer(modifier = Modifier.height(promptSpacerSmall))
+
+                                    Text(
+                                        text = "Check your connection and try again.",
+                                        style = subtitleStyle,
+                                        color = Color.White.copy(alpha = 0.5f),
+                                        textAlign = TextAlign.Start
+                                    )
+
+                                    Spacer(modifier = Modifier.height(promptSpacerMedium))
+
+                                    if (!uiState.isPromptLoading) {
+                                        TextButton(
+                                            onClick = onRetryPrompt,
+                                            colors = ButtonDefaults.textButtonColors(
+                                                contentColor = GoldAura500
+                                            ),
+                                            contentPadding = PaddingValues(0.dp)
+                                        ) {
+                                            Text(
+                                                text = "Retry",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.Normal
+                                            )
+                                        }
+                                    } else {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(24.dp),
+                                            color = GoldAura500.copy(alpha = 0.4f),
+                                            strokeWidth = 2.dp
+                                        )
+                                    }
+                                }
                             } else {
                                 CircularProgressIndicator(color = GoldAura500.copy(alpha = 0.2f))
                             }
@@ -774,6 +829,48 @@ fun RecordingScreenContent(
                                         fontWeight = FontWeight.Light
                                     )
                                 }
+                            }
+                        }
+
+                        if (uiState.currentPrompt == null && uiState.showPromptRetry) {
+                            Text(
+                                text = "Unable to retrieve your reflection history.",
+                                style = MaterialTheme.typography.displaySmall.copy(
+                                    fontWeight = FontWeight.Light,
+                                    fontSize = 20.sp
+                                ),
+                                color = Color.White,
+                                textAlign = TextAlign.Start,
+                                lineHeight = 26.sp
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "Check your connection and try again.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.White.copy(alpha = 0.5f),
+                                textAlign = TextAlign.Start
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            if (!uiState.isPromptLoading) {
+                                TextButton(
+                                    onClick = onRetryPrompt,
+                                    colors = ButtonDefaults.textButtonColors(
+                                        contentColor = GoldAura500
+                                    ),
+                                    contentPadding = PaddingValues(0.dp)
+                                ) {
+                                    Text(
+                                        text = "Retry",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.Normal
+                                    )
+                                }
+                            } else {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    color = GoldAura500.copy(alpha = 0.4f),
+                                    strokeWidth = 2.dp
+                                )
                             }
                         }
                     }

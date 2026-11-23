@@ -24,9 +24,9 @@ class ReflectionPromptManager @Inject constructor(
     /**
      * Ensures remote consumption history is hydrated before prompt selection.
      */
-    suspend fun ensureHydrated(userId: String): PromptHydrationState {
-        return promptSyncRepository?.get()?.ensureHydrated(userId)
-            ?: promptRepository.ensureHydrated(userId)
+    suspend fun ensureHydrated(userId: String, forceRefresh: Boolean = false): PromptHydrationState {
+        return promptSyncRepository?.get()?.ensureHydrated(userId, forceRefresh = forceRefresh)
+            ?: promptRepository.ensureHydrated(userId, forceRefresh = forceRefresh)
     }
 
     /**
@@ -35,6 +35,14 @@ class ReflectionPromptManager @Inject constructor(
     fun getHydrationState(userId: String): PromptHydrationState {
         return promptSyncRepository?.get()?.getHydrationState(userId)
             ?: promptRepository.getHydrationState(userId)
+    }
+
+    /**
+     * Checks if initial prompt hydration has been established persistently for [userId].
+     */
+    suspend fun isHydrationEstablished(userId: String): Boolean {
+        return promptSyncRepository?.get()?.isHydrationEstablished(userId)
+            ?: promptRepository.isHydrationEstablished(userId)
     }
 
     /**

@@ -325,6 +325,35 @@ class RecordingSessionManager @Inject constructor(
 
     fun getActiveDraft(): ArtifactDraftEntity? = _activeDraft.value
 
+    /**
+     * Resolves the authoritative active recording draft for [userId].
+     * Reads directly from the Room database (DraftDao) to ensure persisted draft state
+     * takes precedence over any stale in-memory or navigation state.
+     */
+    suspend fun getAuthoritativeActiveDraft(userId: String): ArtifactDraftEntity? {
+        if (userId.isBlank()) return null
+        val targetDraftId = _rawServiceState.value.draftId.takeIf { it.isNotEmpty() }
+            ?: _activeDraft.value?.id
+        if (targetDraftId != null) {
+            val dbDraft = draftDao.get().getDraftById(targetDraftId, userId)
+            if (dbDraft != null && dbDraft.lifecycle == ArtifactLifecycle.RECORDING) {
+                _activeDraft.value = dbDraft
+                return dbDraft
+            }
+        }
+        val activeRecordings = draftDao.get().getActiveRecordings(userId)
+        val activeFromDb = activeRecordings.firstOrNull()
+        if (activeFromDb != null) {
+            _activeDraft.value = activeFromDb
+            return activeFromDb
+        }
+        val inMemory = _activeDraft.value
+        if (inMemory != null && inMemory.userId == userId && inMemory.lifecycle == ArtifactLifecycle.RECORDING) {
+            return inMemory
+        }
+        return null
+    }
+
     fun isRecordingActive(): Boolean {
         val status = _rawServiceState.value.status
         return status == RecordingStatus.RECORDING || 

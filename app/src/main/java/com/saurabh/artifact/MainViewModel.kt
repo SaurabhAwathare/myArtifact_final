@@ -646,6 +646,9 @@ class MainViewModel @Inject constructor(
                                     try {
                                         promptSyncRepository?.get()?.ensureHydrated(currentUid)
                                     } catch (_: Exception) {}
+                                    try {
+                                        promptSyncRepository?.get()?.schedulePromptSync(currentUid)
+                                    } catch (_: Exception) {}
                                 }
                             }
                             targetDestination
