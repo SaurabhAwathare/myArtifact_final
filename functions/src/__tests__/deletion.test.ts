@@ -81,6 +81,15 @@ jest.mock("firebase-admin", () => {
         increment: (n: number) => ({ increment: n }),
         serverTimestamp: () => ({ timestamp: "now" }),
       },
+      Timestamp: Object.assign(
+        function (seconds: number, nanoseconds: number) {
+          return { seconds, nanoseconds };
+        },
+        {
+          fromMillis: (ms: number) => ({ seconds: Math.floor(ms / 1000), nanoseconds: (ms % 1000) * 1e6 }),
+          fromDate: (date: Date) => ({ seconds: Math.floor(date.getTime() / 1000), nanoseconds: 0 }),
+        }
+      ),
     }),
     storage: () => ({
       bucket: () => mockBucket,

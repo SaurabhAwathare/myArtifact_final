@@ -38,8 +38,11 @@ import com.saurabh.artifact.navigation.Route
 import com.saurabh.artifact.startup.SecurityStatus
 import com.saurabh.artifact.ui.recovery.MnemonicRestoreScreen
 import com.saurabh.artifact.ui.recovery.RescueScreen
+import com.saurabh.artifact.ui.splash.DeletionRecoveryScreen
 import com.saurabh.artifact.ui.splash.SessionConflictScreen
 import com.saurabh.artifact.ui.splash.StartupErrorScreen
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import com.saurabh.artifact.util.OnboardingManager
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
@@ -140,6 +143,18 @@ fun AppRoot(
                 activeDeviceName = startupState.activeDeviceName,
                 onTransferSession = { mainViewModel.transferActiveSession() },
                 onSignOut = { mainViewModel.signOut() }
+            )
+        }
+        is AppStartupState.DeletionRecovery -> {
+            val context = LocalContext.current
+            val serverClientId = stringResource(R.string.default_web_client_id)
+            val deletionState by mainViewModel.deletionRecoveryState.collectAsStateWithLifecycle()
+            DeletionRecoveryScreen(
+                isLoading = deletionState.isLoading,
+                errorMessage = deletionState.errorMessage,
+                onCompleteDeletion = {
+                    mainViewModel.completeDeletionRecovery(context, serverClientId)
+                }
             )
         }
         is AppStartupState.Recovery -> {

@@ -43,6 +43,7 @@ data class Artifact(
     val emotionConfidence: Float = 0f,
     val prompt: String = "",
     val playCount: Long = 0,
+    val qualifiedPlayCount: Long = 0,
     val reactionCount: Long = 0,
     val moderationStatus: String = "CLEAN",
     val toxicityScore: Float = 0f,

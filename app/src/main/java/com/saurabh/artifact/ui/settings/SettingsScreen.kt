@@ -423,7 +423,7 @@ fun SettingsScreen(
 
     if (showReauthenticationDialog) {
         AlertDialog(
-            onDismissRequest = { showReauthenticationDialog = false },
+            onDismissRequest = { /* Non-dismissible: deletion has begun and must complete */ },
             shape = ModalShape,
             title = { Text("Verify your identity") },
             text = { 
@@ -435,8 +435,8 @@ fun SettingsScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        showReauthenticationDialog = false
                         if (isAnonymous) {
+                            showReauthenticationDialog = false
                             viewModel.reauthenticateAndRetry()
                         } else {
                             coroutineScope.launch {
@@ -447,25 +447,21 @@ fun SettingsScreen(
                                 )
                                 when (result) {
                                     is CredentialResult.Success -> {
+                                        showReauthenticationDialog = false
                                         viewModel.reauthenticateAndRetry(result.idToken)
                                     }
                                     is CredentialResult.Failure -> {
                                         snackbarHostState.showSnackbar(result.message.asString(context))
                                     }
                                     is CredentialResult.Canceled -> {
-                                        // User swiped away
+                                        // User swiped away - keep dialog active
                                     }
                                 }
                             }
                         }
                     }
                 ) {
-                    Text("Continue")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showReauthenticationDialog = false }) {
-                    Text("Cancel")
+                    Text(if (isAnonymous) "Verify Session" else "Re-authenticate with Google")
                 }
             }
         )

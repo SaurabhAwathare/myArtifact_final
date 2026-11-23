@@ -172,18 +172,33 @@ class SettingsRepository @Inject constructor(
         val key = CleanupEventKey(targetUid = userId, sessionInstanceId = sessionId)
 
         return try {
-            // 1. Establish Durable Deletion State (Maintenance Lock)
+            // 1. Clear FCM token while the account is still authenticated
+            authRepository.clearFcmToken()
+
+            // 2. Persist the local deletion-pending UID
             maintenanceRepository.setPendingDeletion(userId)
 
-            // 2. Authoritative Remote Trigger (Firebase Auth)
-            // This is the "point of no return" that triggers 'onUserDeleted' Cloud Function
+            // 3. Create the remote PENDING_DELETION tombstone (if not already created)
+            val tombstoneRef = firestore.collection("deleted_users").document(userId)
+            val tombstoneDoc = tombstoneRef.get().await()
+            if (!tombstoneDoc.exists()) {
+                val tombstoneData = mapOf(
+                    "state" to "PENDING_DELETION",
+                    "initiatedAt" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+                )
+                tombstoneRef.set(tombstoneData).await()
+            }
+
+            // 4. Delete the Firebase Authentication account (authoritative point of no return)
             authRepository.deleteCurrentUser().getOrThrow()
-            
-            // 3. Perform Full Local Cleanup (Hardening)
-            // This clears Room database, DataStores, caches, and stops active media.
-            logoutCoordinator.get().performFullCleanup(key)
-            
-            // 4. Clear Maintenance State on success
+
+            // 5. Complete local cleanup (Hardening)
+            val cleanupResult = logoutCoordinator.get().performFullCleanup(key)
+            if (!cleanupResult.isFullySuccessful) {
+                throw IllegalStateException("Local cleanup incomplete: ${cleanupResult.status}")
+            }
+
+            // 6. Clear local deletion marker only after successful cleanup
             maintenanceRepository.setPendingDeletion(null)
 
             Result.success(Unit)
@@ -191,5 +206,58 @@ class SettingsRepository @Inject constructor(
             Log.e("SettingsRepository", "Account deletion sequence failed", e)
             Result.failure(e)
         }
+    }
+
+    /**
+     * Verifies that a PENDING_DELETION tombstone exists for [userId] in the deleted_users collection.
+     */
+    suspend fun verifyDeletionTombstone(userId: String): Result<Unit> {
+        return try {
+            val tombstoneRef = firestore.collection("deleted_users").document(userId)
+            val tombstoneDoc = tombstoneRef.get().await()
+            if (!tombstoneDoc.exists()) {
+                return Result.failure(IllegalStateException("Account deletion tombstone is missing."))
+            }
+            val state = tombstoneDoc.getString("state")
+            if (state != "PENDING_DELETION") {
+                return Result.failure(IllegalStateException("Account deletion tombstone has unexpected state: $state"))
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Completes an interrupted account deletion by verifying the pending deletion marker and tombstone,
+     * reauthenticating the user with the provided [idToken], and invoking [deleteUserAccount].
+     */
+    suspend fun recoverAccountDeletion(idToken: String): Result<Unit> {
+        val currentUid = authRepository.currentUser.value?.uid ?: authRepository.currentUserId
+        if (currentUid.isEmpty()) {
+            return Result.failure(IllegalStateException("No authenticated user found for deletion recovery."))
+        }
+        val pendingUid = maintenanceRepository.getPendingDeletionUid()
+            ?: return Result.failure(IllegalStateException("No pending deletion found."))
+
+        // 1. Verify current authenticated UID matches pending deletion UID
+        if (currentUid != pendingUid) {
+            return Result.failure(IllegalStateException("Authenticated UID ($currentUid) does not match pending deletion UID ($pendingUid)."))
+        }
+
+        // 2. Confirm existing PENDING_DELETION tombstone is still present and belongs to that UID
+        val tombstoneVerification = verifyDeletionTombstone(currentUid)
+        if (tombstoneVerification.isFailure) {
+            return tombstoneVerification
+        }
+
+        // 3. Reauthenticate existing Firebase Authentication user
+        val reauthResult = authRepository.reauthenticateWithGoogle(idToken)
+        if (reauthResult.isFailure) {
+            return Result.failure(reauthResult.exceptionOrNull() ?: Exception("Reauthentication failed."))
+        }
+
+        // 4. Retry existing account-deletion operation
+        return deleteUserAccount()
     }
 }

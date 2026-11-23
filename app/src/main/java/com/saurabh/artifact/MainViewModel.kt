@@ -58,6 +58,7 @@ sealed class AppStartupState {
     object Registering : AppStartupState()
     object Rescue : AppStartupState()
     object Recovery : AppStartupState()
+    data class DeletionRecovery(val pendingUid: String) : AppStartupState()
     data class SessionConflict(val activeDeviceName: String) : AppStartupState()
     data class Ready(
         val startDestination: Any,
@@ -66,6 +67,11 @@ sealed class AppStartupState {
     ) : AppStartupState()
     data class Error(val message: String) : AppStartupState()
 }
+
+data class DeletionRecoveryUiState(
+    val isLoading: Boolean = false,
+    val errorMessage: String? = null
+)
 
 @OptIn(UnstableApi::class, ExperimentalCoroutinesApi::class)
 @HiltViewModel
@@ -87,6 +93,8 @@ class MainViewModel @Inject constructor(
     private val onboardingManager: OnboardingManager? = null,
     @param:ApplicationContext private val context: Context? = null,
     private val promptSyncRepository: Lazy<com.saurabh.artifact.repository.PromptSyncRepository>? = null,
+    val credentialHelper: com.saurabh.artifact.auth.CredentialHelper? = null,
+    private val settingsRepository: Lazy<com.saurabh.artifact.repository.SettingsRepository>? = null,
 ) : ViewModel() {
 
     companion object {
@@ -106,6 +114,9 @@ class MainViewModel @Inject constructor(
 
     private val _startupState = MutableStateFlow<AppStartupState>(AppStartupState.Initializing)
     val startupState = _startupState.asStateFlow()
+
+    private val _deletionRecoveryState = MutableStateFlow(DeletionRecoveryUiState())
+    val deletionRecoveryState = _deletionRecoveryState.asStateFlow()
 
     private val _isCleaning = MutableStateFlow(value = false)
     val isCleaning = _isCleaning.asStateFlow()
@@ -366,6 +377,22 @@ class MainViewModel @Inject constructor(
         val isDirtyLoggedOut = currentUid.isEmpty() && owningUid != null
 
         if (isDeletionInterrupted || isUidMismatch || isDirtyLoggedOut || isLoggingOut) {
+            if (isDeletionInterrupted && currentUid.isNotEmpty()) {
+                if (currentUid == pendingDeletionUid) {
+                    diagnosticLogger.warn(DiagnosticCategory.AUTH, "STARTUP_PENDING_DELETION_AUTH_ACTIVE", mapOf("uid" to currentUid))
+                    _startupState.value = AppStartupState.DeletionRecovery(currentUid)
+                    return false
+                } else {
+                    diagnosticLogger.error(
+                        DiagnosticCategory.AUTH,
+                        "STARTUP_PENDING_DELETION_UID_MISMATCH",
+                        mapOf("currentUid" to currentUid, "pendingUid" to pendingDeletionUid)
+                    )
+                    _startupState.value = AppStartupState.Error("Security boundary violation: authenticated account does not match pending deletion.")
+                    return false
+                }
+            }
+
             val reason = when {
                 isDeletionInterrupted -> "pending_deletion"
                 isLoggingOut -> "interrupted_logout"
@@ -774,6 +801,135 @@ class MainViewModel @Inject constructor(
                     securityStatus = startupCoordinator.securityStatus.value
                 )
             }
+        }
+    }
+
+    fun completeDeletionRecovery(context: Context, serverClientId: String) {
+        if (_deletionRecoveryState.value.isLoading) return
+
+        viewModelScope.launch {
+            _deletionRecoveryState.value = DeletionRecoveryUiState(isLoading = true, errorMessage = null)
+
+            // Step 1: Verify current authenticated UID matches pending deletion UID
+            val currentUid = authRepository.currentUserId
+            val pendingUid = maintenanceRepository.getPendingDeletionUid()
+            if (currentUid.isEmpty() || pendingUid == null || currentUid != pendingUid) {
+                diagnosticLogger.error(
+                    DiagnosticCategory.AUTH,
+                    "DELETION_RECOVERY_UID_MISMATCH",
+                    mapOf("currentUid" to currentUid, "pendingUid" to (pendingUid ?: "null"))
+                )
+                _deletionRecoveryState.value = DeletionRecoveryUiState(
+                    isLoading = false,
+                    errorMessage = "Account identity mismatch. Recovery cannot proceed."
+                )
+                return@launch
+            }
+
+            // Step 2: Confirm existing PENDING_DELETION tombstone is present and belongs to UID
+            val settingsRepo = settingsRepository?.get()
+            if (settingsRepo != null) {
+                val tombstoneResult = settingsRepo.verifyDeletionTombstone(currentUid)
+                if (tombstoneResult.isFailure) {
+                    val err = tombstoneResult.exceptionOrNull()
+                    diagnosticLogger.error(DiagnosticCategory.AUTH, "DELETION_RECOVERY_TOMBSTONE_INVALID", throwable = err)
+                    val message = when (err) {
+                        is IllegalStateException -> err.message ?: "Account deletion tombstone is missing or invalid."
+                        is java.io.IOException -> "Network unavailable. Please check your connection and try again."
+                        else -> err?.message ?: "Failed to verify account status. Please try again."
+                    }
+                    _deletionRecoveryState.value = DeletionRecoveryUiState(
+                        isLoading = false,
+                        errorMessage = message
+                    )
+                    return@launch
+                }
+            }
+
+            // Step 3: Obtain fresh Google credentials using existing Credential Manager integration
+            val helper = credentialHelper
+            if (helper == null) {
+                _deletionRecoveryState.value = DeletionRecoveryUiState(
+                    isLoading = false,
+                    errorMessage = "Credential service unavailable. Please restart the app."
+                )
+                return@launch
+            }
+
+            val credentialResult = helper.getGoogleCredential(
+                context = context,
+                serverClientId = serverClientId,
+                filterByAuthorizedAccounts = false
+            )
+
+            val idToken = when (credentialResult) {
+                is com.saurabh.artifact.auth.CredentialResult.Success -> credentialResult.idToken
+                is com.saurabh.artifact.auth.CredentialResult.Canceled -> {
+                    diagnosticLogger.info(DiagnosticCategory.AUTH, "DELETION_RECOVERY_CREDENTIAL_CANCELED")
+                    _deletionRecoveryState.value = DeletionRecoveryUiState(
+                        isLoading = false,
+                        errorMessage = "Reauthentication was canceled. Tap 'Complete Deletion' to try again."
+                    )
+                    return@launch
+                }
+                is com.saurabh.artifact.auth.CredentialResult.Failure -> {
+                    diagnosticLogger.error(
+                        DiagnosticCategory.AUTH,
+                        "DELETION_RECOVERY_CREDENTIAL_FAILED",
+                        mapOf("message" to credentialResult.message.asString(context)),
+                        credentialResult.throwable
+                    )
+                    val isNetwork = credentialResult.throwable is java.io.IOException ||
+                        credentialResult.throwable?.message?.contains("network", ignoreCase = true) == true
+                    val message = if (isNetwork) {
+                        "Network unavailable. Please check your connection and try again."
+                    } else {
+                        credentialResult.message.asString(context)
+                    }
+                    _deletionRecoveryState.value = DeletionRecoveryUiState(
+                        isLoading = false,
+                        errorMessage = message
+                    )
+                    return@launch
+                }
+            }
+
+            // Step 4-9: Reauthenticate and complete deletion sequence
+            completeDeletionRecoveryWithToken(idToken)
+        }
+    }
+
+    suspend fun completeDeletionRecoveryWithToken(idToken: String) {
+        _deletionRecoveryState.value = _deletionRecoveryState.value.copy(isLoading = true, errorMessage = null)
+        val settingsRepo = settingsRepository?.get()
+        if (settingsRepo == null) {
+            _deletionRecoveryState.value = DeletionRecoveryUiState(
+                isLoading = false,
+                errorMessage = "Settings service unavailable. Please restart the app."
+            )
+            return
+        }
+
+        val result = settingsRepo.recoverAccountDeletion(idToken)
+        if (result.isSuccess) {
+            diagnosticLogger.info(DiagnosticCategory.AUTH, "DELETION_RECOVERY_COMPLETED")
+            _deletionRecoveryState.value = DeletionRecoveryUiState(isLoading = false, errorMessage = null)
+            _startupState.value = AppStartupState.Ready(
+                startDestination = Login,
+                securityStatus = startupCoordinator.securityStatus.value
+            )
+        } else {
+            val err = result.exceptionOrNull()
+            diagnosticLogger.error(DiagnosticCategory.AUTH, "DELETION_RECOVERY_FAILED", throwable = err)
+            val message = when (err) {
+                is AppError.ReauthenticationRequired -> "Recent login required. Please reauthenticate again."
+                is java.io.IOException -> "Network error during account deletion. Please try again."
+                else -> err?.message ?: "Account deletion failed. Please try again."
+            }
+            _deletionRecoveryState.value = DeletionRecoveryUiState(
+                isLoading = false,
+                errorMessage = message
+            )
         }
     }
 

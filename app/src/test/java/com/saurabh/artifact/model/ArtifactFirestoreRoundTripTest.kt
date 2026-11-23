@@ -103,5 +103,45 @@ class ArtifactFirestoreRoundTripTest {
         
         val isDraftFieldParam = params?.find { it.name == "isDraftField" }
         assertTrue("Constructor should have isDraftField parameter", isDraftFieldParam != null)
+
+        val qualifiedPlayCountParam = params?.find { it.name == "qualifiedPlayCount" }
+        assertTrue("Constructor should have qualifiedPlayCount parameter", qualifiedPlayCountParam != null)
+    }
+
+    @Test
+    fun `verify Firestore CustomClassMapper hydrates qualifiedPlayCount correctly`() {
+        val map = mapOf<String, Any>(
+            "id" to "test_doc_play_1",
+            "title" to "Artifact",
+            "qualifiedPlayCount" to 42L,
+        )
+        val customClassMapper = Class.forName("com.google.firebase.firestore.util.CustomClassMapper")
+        val method = customClassMapper.getDeclaredMethod(
+            "convertToCustomClass",
+            Any::class.java,
+            Class::class.java,
+            DocumentReference::class.java,
+        )
+        method.isAccessible = true
+        val artifact = method.invoke(null, map, Artifact::class.java, null) as Artifact
+        assertEquals(42L, artifact.qualifiedPlayCount)
+    }
+
+    @Test
+    fun `verify Firestore CustomClassMapper handles legacy artifact without qualifiedPlayCount field safely`() {
+        val map = mapOf<String, Any>(
+            "id" to "legacy_doc_play_0",
+            "title" to "Artifact",
+        )
+        val customClassMapper = Class.forName("com.google.firebase.firestore.util.CustomClassMapper")
+        val method = customClassMapper.getDeclaredMethod(
+            "convertToCustomClass",
+            Any::class.java,
+            Class::class.java,
+            DocumentReference::class.java,
+        )
+        method.isAccessible = true
+        val artifact = method.invoke(null, map, Artifact::class.java, null) as Artifact
+        assertEquals(0L, artifact.qualifiedPlayCount)
     }
 }

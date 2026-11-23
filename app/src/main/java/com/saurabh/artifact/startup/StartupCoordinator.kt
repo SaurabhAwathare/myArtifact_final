@@ -196,6 +196,19 @@ class StartupCoordinator @Inject constructor(
                 val isLoggingOut = userSessionManager.isLoggingOut.first()
 
                 if (pendingUid != null || isLoggingOut) {
+                    val currentUser = try {
+                        com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+                    } catch (e: Exception) {
+                        null
+                    }
+
+                    if (pendingUid != null && currentUser != null && currentUser.uid == pendingUid) {
+                        ArtifactLogger.w(DiagnosticCategory.STARTUP, "INTERRUPTED_DELETION_AUTH_PENDING", mapOf(LogKeys.USER_ID to pendingUid))
+                        _stage.value = StartupStage.DELETION_CLEANUP
+                        _terminalError.value = Exception("Account deletion is pending. Please complete account deletion.")
+                        return@launch
+                    }
+
                     ArtifactLogger.w(DiagnosticCategory.STARTUP, "INTERRUPTED_CLEANUP_DETECTED", mapOf(LogKeys.USER_ID to (pendingUid ?: "unknown"), "isLogout" to isLoggingOut))
                     _stage.value = StartupStage.DELETION_CLEANUP
                     

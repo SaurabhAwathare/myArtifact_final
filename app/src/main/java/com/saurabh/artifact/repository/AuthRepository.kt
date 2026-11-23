@@ -999,7 +999,7 @@ class AuthRepository @Inject constructor(
         }
     }
 
-    private suspend fun clearFcmToken() {
+    suspend fun clearFcmToken() {
         val uid = firebaseAuth.currentUser?.uid ?: return
         try {
             withTimeoutOrNull(2000L) {

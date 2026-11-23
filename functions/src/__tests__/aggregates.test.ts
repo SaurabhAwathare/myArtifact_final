@@ -107,15 +107,49 @@ describe("Aggregate Cloud Functions", () => {
   });
 
   describe("onPlayCreated", () => {
-    it("should increment playCount when a play event is created", async () => {
+    it("should increment qualifiedPlayCount and write idempotency record when a qualified play event is created", async () => {
       const artifactId = "art123";
-      const playId = "play_user1_art123_2026-07-26";
+      const userId = "user1";
+      const sessionIdentity = "sess_456";
+      const playId = `play_${userId}_${sessionIdentity}`;
       const wrapped = testEnv.wrap(myFunctions.onPlayCreated);
 
-      const snapshot = { data: () => ({ artifactId, userId: "user1" }) } as any;
+      const now = Date.now();
+      const mockTimestamp = {
+        toMillis: () => now,
+        seconds: Math.floor(now / 1000),
+        nanoseconds: 0,
+      };
 
+      const payload = {
+        playId,
+        userId,
+        artifactId,
+        sessionIdentity,
+        playbackDurationMs: 12000,
+        clientOccurredAt: mockTimestamp,
+        serverReceivedAt: mockTimestamp,
+      };
+
+      const snapshot = { data: () => payload } as any;
+
+      let getCallCount = 0;
       const transaction = {
-        get: (jest.fn() as any).mockResolvedValue({ exists: false }),
+        get: jest.fn(async () => {
+          getCallCount++;
+          if (getCallCount === 3) {
+            return {
+              exists: true,
+              data: () => ({
+                userId: "creator_other",
+                status: "ACTIVE",
+                qualifiedPlayCount: 0,
+                playCount: 10,
+              }),
+            };
+          }
+          return { exists: false, data: () => null };
+        }),
         set: jest.fn(),
         update: jest.fn(),
         delete: jest.fn(),
@@ -127,7 +161,23 @@ describe("Aggregate Cloud Functions", () => {
         eventId: "event456",
       });
 
-      expect(transaction.update).toHaveBeenCalled();
+      expect(transaction.update).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          qualifiedPlayCount: expect.anything(),
+        })
+      );
+      const updateArgs = (transaction.update as any).mock.calls[0][1];
+      expect(updateArgs.playCount).toBeUndefined();
+
+      expect(transaction.set).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          status: "SUCCESS",
+          userId,
+          artifactId,
+        })
+      );
     });
   });
 

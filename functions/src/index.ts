@@ -1,7 +1,7 @@
 import * as functions from "firebase-functions/v1";
 import * as admin from "firebase-admin";
 import * as crypto from "crypto";
-import {FieldValue} from "firebase-admin/firestore";
+import {FieldValue, Timestamp} from "firebase-admin/firestore";
 import {withIdempotency} from "./util/idempotency";
 import {logger} from "./util/logger";
 import {validateCoverage, coverageToBase64} from "./util/validation/coverage";
@@ -17,7 +17,9 @@ import {
 import { resolveStorageBucket } from "./util/storage";
 import { processNotificationDelivery, recoverExpiredNotificationLeases } from "./notification_delivery";
 import { resolveAvatarConfiguration } from "./util/validation/avatar";
-export { resolveStorageBucket };
+import { aggregatePlayEventTx } from "./play_aggregation";
+import { runPlayReconciliationScanner } from "./play_reconciliation_scanner";
+export { resolveStorageBucket, runPlayReconciliationScanner };
 
 if (!admin.apps.length) {
   admin.initializeApp();
@@ -1590,6 +1592,7 @@ export const onUserDeleted = functions
   .runWith({
     timeoutSeconds: 540,
     memory: "1GB",
+    failurePolicy: true,
   })
   .auth.user()
   .onDelete(async (user) => {
@@ -1599,6 +1602,14 @@ export const onUserDeleted = functions
     const startTime = Date.now();
 
     logger.info(`[DELETE USER] START | UID=${uid}`);
+
+    // Fast-path: Check if deletion already completed on a prior retry / duplicate delivery
+    const tombstoneRef = db.collection("deleted_users").doc(uid);
+    const tombstoneDoc = await tombstoneRef.get();
+    if (tombstoneDoc.exists && tombstoneDoc.data()?.state === "DELETED") {
+      logger.info(`[DELETE USER] ALREADY_COMPLETED | UID=${uid} | Skipping redundant cleanup.`);
+      return null;
+    }
 
     try {
       // 0. Storage Cleanup: Backups (Authoritative prefix purge)
@@ -1638,6 +1649,8 @@ export const onUserDeleted = functions
             if (data.status !== "DELETED") {
               if (data.moderation?.legalHold === true) {
                 logger.info(`[DELETE USER] Artifact Preserved (Legal Hold) | ArtifactID=${artifactId}`);
+                // Delete from registry to advance pagination without altering the preserved artifact
+                bulkWriter.delete(regDoc.ref);
                 continue;
               }
               bulkWriter.update(artifactRef, {
@@ -1729,7 +1742,8 @@ export const onUserDeleted = functions
         { coll: "reactions_global", field: "userId", label: "Global Reactions" },
         { coll: "artifact_reactions", field: "userId", label: "Artifact Reactions" },
         { coll: "artifact_plays", field: "userId", label: "Artifact Plays" },
-        { coll: "feedback_private", field: "userId", label: "Private Feedback" }
+        { coll: "feedback_private", field: "userId", label: "Private Feedback" },
+        { coll: "idempotency_keys", field: "userId", label: "User Idempotency Keys" }
       ];
 
       for (const entry of globalCollections) {
@@ -1743,6 +1757,21 @@ export const onUserDeleted = functions
       // 7. FINAL: Recursive User Tree Destruction
       const userRef = db.collection("users").doc(uid);
       await db.recursiveDelete(userRef);
+
+      // 8. FINAL TERMINAL TRANSITION: Update tombstone to DELETED with 60-day retention
+      const expiresAt = (admin.firestore?.Timestamp?.fromMillis
+        ? admin.firestore.Timestamp.fromMillis(Date.now() + 60 * 24 * 60 * 60 * 1000)
+        : (Timestamp?.fromMillis
+            ? Timestamp.fromMillis(Date.now() + 60 * 24 * 60 * 60 * 1000)
+            : ({ seconds: Math.floor((Date.now() + 60 * 24 * 60 * 60 * 1000) / 1000), nanoseconds: 0 } as any)));
+      if (typeof tombstoneRef?.set === "function") {
+        await tombstoneRef.set({
+          state: "DELETED",
+          completedAt: FieldValue.serverTimestamp(),
+          expiresAt: expiresAt,
+        }, { merge: true });
+        logger.info(`[DELETE USER] Tombstone transitioned to DELETED | UID=${uid}`);
+      }
 
       const totalDuration = Date.now() - startTime;
       logger.info(`[DELETE USER] FINISH | UID=${uid} | Duration=${totalDuration}ms`);
@@ -2932,35 +2961,31 @@ export const onCommentUpdated = functions.firestore
   });
 
 /**
- * Authoritatively handles playCount aggregation.
- * Triggered by client logging a daily unique play event to artifact_plays.
- * The playId (play_{userId}_{artifactId}_{date}) ensures idempotency.
+ * Authoritatively handles qualified play aggregation.
+ * Triggered by client logging a qualified play event to artifact_plays.
+ * Uses deterministic playId (play_{userId}_{sessionIdentity}) for transactional idempotency.
+ * Configured with failurePolicy: true, memory: "256MB", timeoutSeconds: 60.
  */
-export const onPlayCreated = functions.firestore
+export const onPlayCreated = functions
+  .runWith({
+    failurePolicy: true,
+    memory: "256MB",
+    timeoutSeconds: 60,
+  })
+  .firestore
   .document("artifact_plays/{playId}")
   .onCreate(async (snapshot, context) => {
     const data = snapshot.data();
+    const playId = context.params.playId;
     if (!data) return null;
 
-    const artifactId = data.artifactId;
-    const playId = context.params.playId;
-
-    return withIdempotency(playId, async (transaction) => {
-      const db = admin.firestore();
-      const artifactRef = db.collection("artifacts").doc(artifactId);
-
-      if (transaction) {
-        transaction.update(artifactRef, {
-          playCount: FieldValue.increment(1),
-        });
-      } else {
-        await artifactRef.update({
-          playCount: FieldValue.increment(1),
-        });
-      }
-
-      logger.info(`[AGGREGATE] playCount incremented | ArtifactID=${artifactId} | PlayID=${playId}`);
+    const db = admin.firestore();
+    const outcome = await aggregatePlayEventTx(db, data, playId, {
+      source: "EVENT_TRIGGER",
     });
+
+    logger.info(`[ON_PLAY_CREATED] Outcome=${outcome.status} | PlayID=${playId}`, { outcome });
+    return null;
   });
 
 /**
