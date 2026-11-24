@@ -20,6 +20,8 @@ fun Artifact.toPlayerArtifact(): PlayerArtifact {
         recommendationState = recommendationState,
         isPublic = isPublic,
         isDraft = isDraft,
-        episodeNumber = episodeNumber
+        episodeNumber = episodeNumber,
+        qualifiedPlayCount = qualifiedPlayCount,
+        commentCount = commentCount
     )
 }

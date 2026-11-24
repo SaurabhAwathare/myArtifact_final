@@ -66,6 +66,19 @@ class ArtifactEngagementRepositoryTest {
     }
 
     @Test
+    fun `recordPlay must never write to artifact_plays collection`() = runBlocking {
+        val emotion = "Joy"
+        val userId = "user123"
+        val artifactId = "art123"
+
+        every { settingsRepository.userSettings } returns flowOf(UserSettings(dataCollectionConsent = true))
+
+        repository.recordPlay(userId, artifactId, emotion)
+
+        verify(exactly = 0) { firestore.collection("artifact_plays") }
+    }
+
+    @Test
     fun `submitPrivateFeedback should trigger local re-ranking for NOT_FOR_ME if consent is given`() = runBlocking {
         val artifactId = "art123"
         val userId = "user123"

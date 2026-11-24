@@ -94,4 +94,9 @@ object DatabaseModule {
     fun provideDisplayedNotificationDao(database: AppDatabase): DisplayedNotificationDao {
         return database.displayedNotificationDao()
     }
+
+    @Provides
+    fun providePendingQualifiedPlayDao(database: AppDatabase): com.saurabh.artifact.data.local.PendingQualifiedPlayDao {
+        return database.pendingQualifiedPlayDao()
+    }
 }

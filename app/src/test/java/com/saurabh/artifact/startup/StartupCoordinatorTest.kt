@@ -15,6 +15,7 @@ import com.saurabh.artifact.util.StartupTracer
 import io.mockk.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -47,6 +48,7 @@ class StartupCoordinatorTest {
     private val maintenanceRepository = mockk<MaintenanceRepository>(relaxed = true)
     private val userSessionManager = mockk<UserSessionManager>(relaxed = true)
     private val logoutCoordinator = mockk<LogoutCoordinator>(relaxed = true)
+    private val qualifiedPlayRepository = mockk<com.saurabh.artifact.repository.QualifiedPlayRepository>(relaxed = true)
     
     private val firebaseAppCheck = mockk<FirebaseAppCheck>()
     private val googleApiAvailability = mockk<GoogleApiAvailability>()
@@ -104,7 +106,8 @@ class StartupCoordinatorTest {
             { cleanupManager },
             maintenanceRepository,
             userSessionManager,
-            { logoutCoordinator }
+            { logoutCoordinator },
+            { qualifiedPlayRepository }
         )
     }
 
@@ -413,5 +416,27 @@ class StartupCoordinatorTest {
         advanceUntilIdle()
 
         assertEquals("Fatal initialization error", coordinator.terminalError.value?.message)
+    }
+
+    @Test
+    fun `interrupted account deletion recovery purges pending plays and clears marker`() = runTest(testDispatcher) {
+        val pendingUid = "pending_deletion_user_999"
+        coEvery { maintenanceRepository.getPendingDeletionUid() } returns pendingUid
+        every { userSessionManager.isLoggingOut } returns MutableStateFlow(false)
+        every { userSessionManager.localSessionId } returns MutableStateFlow("test_session_id")
+        coEvery { logoutCoordinator.performFullCleanup(any()) } returns com.saurabh.artifact.domain.auth.CleanupResult(status = com.saurabh.artifact.domain.auth.CleanupStatus.COMPLETED)
+        coEvery { qualifiedPlayRepository.deletePlaysForUser(pendingUid) } returns 2
+        coEvery { maintenanceRepository.setPendingDeletion(null) } returns Unit
+        coEvery { encryptionManager.preload() } returns PreloadResult.Success
+
+        coordinator.start()
+        coordinator.emitReadiness(StartupComponent.AUTH)
+        advanceUntilIdle()
+
+        coVerifyOrder {
+            logoutCoordinator.performFullCleanup(any())
+            qualifiedPlayRepository.deletePlaysForUser(pendingUid)
+            maintenanceRepository.setPendingDeletion(null)
+        }
     }
 }

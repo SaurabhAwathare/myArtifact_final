@@ -79,7 +79,7 @@ class GetPlayerContextUseCase @Inject constructor(
                 if (updatedArtifact == null) {
                     PlayerMetadata()
                 } else {
-                    PlayerMetadata(artifactId = updatedArtifact.id)
+                    PlayerMetadata(artifactId = updatedArtifact.id, qualifiedPlayCount = 0L, commentCount = 0L)
                 }
             }
     }
@@ -282,6 +282,7 @@ class GetPlayerContextUseCase @Inject constructor(
             artifactUpdateFlow
         ) { params: Array<Any?> ->
             val res = params[0] as ResonanceMetadata
+            val updatedArtifact = params[8] as? Artifact
             PlayerMetadata(
                 artifactId = artifact.id,
                 resonanceCount = res.count,
@@ -293,7 +294,9 @@ class GetPlayerContextUseCase @Inject constructor(
                 isResonating = params[4] as Boolean,
                 followSyncStatus = params[5] as InteractionSyncStatus,
                 isSaved = params[6] as Boolean,
-                saveSyncStatus = params[7] as InteractionSyncStatus
+                saveSyncStatus = params[7] as InteractionSyncStatus,
+                qualifiedPlayCount = updatedArtifact?.qualifiedPlayCount ?: artifact.qualifiedPlayCount,
+                commentCount = updatedArtifact?.commentCount ?: artifact.commentCount
             )
         }
     }
@@ -328,5 +331,7 @@ data class PlayerMetadata(
     val isResonating: Boolean = false,
     val followSyncStatus: InteractionSyncStatus = InteractionSyncStatus.SYNCED,
     val isSaved: Boolean = false,
-    val saveSyncStatus: InteractionSyncStatus = InteractionSyncStatus.SYNCED
+    val saveSyncStatus: InteractionSyncStatus = InteractionSyncStatus.SYNCED,
+    val qualifiedPlayCount: Long = 0L,
+    val commentCount: Long = 0L
 )

@@ -180,19 +180,20 @@ fun EmotionTag(
 }
 
 /**
- * Displays up to 3 read-only emotion tags in a horizontal row.
+ * Displays up to 3 read-only emotion tags in an adaptive, wrap-safe layout.
  */
 @Composable
 fun EmotionTagsGroup(
     emotions: List<String>,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    horizontalArrangement: Arrangement.Horizontal = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally)
 ) {
     if (emotions.isEmpty()) return
 
-    Row(
+    FlowRow(
         modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically
+        horizontalArrangement = horizontalArrangement,
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         emotions.take(3).forEach { emotion ->
             EmotionTag(emotion = emotion)

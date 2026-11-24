@@ -430,4 +430,113 @@ class PlayerViewModelTest {
         Assert.assertTrue(errors.contains("Connection lost. Please check your network."))
         collectJob.cancel()
     }
+
+    @Test
+    fun `uiState should reflect qualifiedPlayCount from metadata when metadata is synced`() = runTest {
+        val artifact = Artifact(id = "art_qual_vm", userId = "owner1", qualifiedPlayCount = 10L)
+        val currentArtifactFlow = MutableStateFlow<Artifact?>(artifact)
+        val metadataFlow = MutableStateFlow(PlayerMetadata(artifactId = "art_qual_vm", qualifiedPlayCount = 10L))
+
+        every { playbackCoordinator.currentArtifact } returns currentArtifactFlow
+        every { getPlayerContextUseCase.execute(any()) } returns metadataFlow
+
+        val vm = PlayerViewModel(
+            savedStateHandle, playbackCoordinator, authRepository, { reactionUseCase },
+            { playerInteractionUseCase }, getPlayerContextUseCase, { playableArtifactRepository },
+            reviewSessionManager, { deleteArtifactUseCase },
+            publishingPolicy, diagnosticLogger
+        )
+        backgroundScope.launch { vm.uiState.collect {} }
+        advanceUntilIdle()
+        advanceTimeBy(6000)
+
+        Assert.assertEquals(10L, vm.uiState.value.qualifiedPlayCount)
+    }
+
+    @Test
+    fun `uiState should update qualifiedPlayCount when metadata snapshot updates while player is open`() = runTest {
+        val artifact = Artifact(id = "art_live_vm", userId = "owner1", qualifiedPlayCount = 3L)
+        val currentArtifactFlow = MutableStateFlow<Artifact?>(artifact)
+        val metadataFlow = MutableStateFlow(PlayerMetadata(artifactId = "art_live_vm", qualifiedPlayCount = 3L))
+
+        every { playbackCoordinator.currentArtifact } returns currentArtifactFlow
+        every { getPlayerContextUseCase.execute(any()) } returns metadataFlow
+
+        val vm = PlayerViewModel(
+            savedStateHandle, playbackCoordinator, authRepository, { reactionUseCase },
+            { playerInteractionUseCase }, getPlayerContextUseCase, { playableArtifactRepository },
+            reviewSessionManager, { deleteArtifactUseCase },
+            publishingPolicy, diagnosticLogger
+        )
+        backgroundScope.launch { vm.uiState.collect {} }
+        advanceUntilIdle()
+        advanceTimeBy(6000)
+
+        Assert.assertEquals(3L, vm.uiState.value.qualifiedPlayCount)
+
+        // Snapshot update arrives while player remains open
+        metadataFlow.value = PlayerMetadata(artifactId = "art_live_vm", qualifiedPlayCount = 4L)
+        advanceUntilIdle()
+
+        Assert.assertEquals(4L, vm.uiState.value.qualifiedPlayCount)
+    }
+
+    @Test
+    fun `switching artifacts should not display previous artifact qualifiedPlayCount`() = runTest {
+        val artifact1 = Artifact(id = "art_1", userId = "owner1", qualifiedPlayCount = 99L)
+        val artifact2 = Artifact(id = "art_2", userId = "owner2", qualifiedPlayCount = 0L)
+        val currentArtifactFlow = MutableStateFlow<Artifact?>(artifact1)
+        val metadataFlow = MutableStateFlow(PlayerMetadata(artifactId = "art_1", qualifiedPlayCount = 99L))
+
+        every { playbackCoordinator.currentArtifact } returns currentArtifactFlow
+        every { getPlayerContextUseCase.execute(any()) } returns metadataFlow
+
+        val vm = PlayerViewModel(
+            savedStateHandle, playbackCoordinator, authRepository, { reactionUseCase },
+            { playerInteractionUseCase }, getPlayerContextUseCase, { playableArtifactRepository },
+            reviewSessionManager, { deleteArtifactUseCase },
+            publishingPolicy, diagnosticLogger
+        )
+        backgroundScope.launch { vm.uiState.collect {} }
+        advanceUntilIdle()
+        advanceTimeBy(6000)
+
+        Assert.assertEquals(99L, vm.uiState.value.qualifiedPlayCount)
+
+        // Switch to artifact2
+        currentArtifactFlow.value = artifact2
+        // Metadata not yet updated for artifact2 (still has art_1)
+        advanceUntilIdle()
+
+        // Because md.artifactId ("art_1") != artifact.id ("art_2"), isMetadataSynced is false!
+        // It must NOT show artifact1's count (99L); it falls back safely to artifact2's count (0L)
+        Assert.assertEquals(0L, vm.uiState.value.qualifiedPlayCount)
+
+        // Now metadata for artifact2 arrives
+        metadataFlow.value = PlayerMetadata(artifactId = "art_2", qualifiedPlayCount = 2L)
+        advanceUntilIdle()
+
+        Assert.assertEquals(2L, vm.uiState.value.qualifiedPlayCount)
+    }
+
+    @Test
+    fun `loading state and null artifact should not fabricate qualifiedPlayCount`() = runTest {
+        val currentArtifactFlow = MutableStateFlow<Artifact?>(null)
+        val metadataFlow = MutableStateFlow(PlayerMetadata())
+
+        every { playbackCoordinator.currentArtifact } returns currentArtifactFlow
+        every { getPlayerContextUseCase.execute(any()) } returns metadataFlow
+
+        val vm = PlayerViewModel(
+            savedStateHandle, playbackCoordinator, authRepository, { reactionUseCase },
+            { playerInteractionUseCase }, getPlayerContextUseCase, { playableArtifactRepository },
+            reviewSessionManager, { deleteArtifactUseCase },
+            publishingPolicy, diagnosticLogger
+        )
+        backgroundScope.launch { vm.uiState.collect {} }
+        advanceUntilIdle()
+        advanceTimeBy(6000)
+
+        Assert.assertEquals(0L, vm.uiState.value.qualifiedPlayCount)
+    }
 }

@@ -75,8 +75,41 @@ class StartupCoordinator @Inject constructor(
     private val cleanupManager: dagger.Lazy<com.saurabh.artifact.audio.ArtifactCleanupManager>,
     private val maintenanceRepository: com.saurabh.artifact.repository.MaintenanceRepository,
     private val userSessionManager: com.saurabh.artifact.data.local.UserSessionManager,
-    private val logoutCoordinator: dagger.Lazy<com.saurabh.artifact.domain.auth.LogoutCoordinator>
+    private val logoutCoordinator: dagger.Lazy<com.saurabh.artifact.domain.auth.LogoutCoordinator>,
+    private val qualifiedPlayRepository: dagger.Lazy<com.saurabh.artifact.repository.QualifiedPlayRepository>
 ) {
+    // Secondary constructor for backward compatibility with existing tests
+    constructor(
+        context: Context,
+        workManager: WorkManager,
+        encryptionManager: com.saurabh.artifact.security.DatabaseEncryptionManager,
+        environmentProvider: com.saurabh.artifact.util.EnvironmentProvider,
+        cleanupManager: dagger.Lazy<com.saurabh.artifact.audio.ArtifactCleanupManager>,
+        maintenanceRepository: com.saurabh.artifact.repository.MaintenanceRepository,
+        userSessionManager: com.saurabh.artifact.data.local.UserSessionManager,
+        logoutCoordinator: dagger.Lazy<com.saurabh.artifact.domain.auth.LogoutCoordinator>
+    ) : this(
+        context = context,
+        workManager = workManager,
+        encryptionManager = encryptionManager,
+        environmentProvider = environmentProvider,
+        cleanupManager = cleanupManager,
+        maintenanceRepository = maintenanceRepository,
+        userSessionManager = userSessionManager,
+        logoutCoordinator = logoutCoordinator,
+        qualifiedPlayRepository = dagger.Lazy {
+            object : com.saurabh.artifact.repository.QualifiedPlayRepository {
+                override suspend fun recordQualifiedPlay(event: com.saurabh.artifact.data.local.PendingQualifiedPlayEntity) = Result.success(Unit)
+                override suspend fun getPendingPlays() = emptyList<com.saurabh.artifact.data.local.PendingQualifiedPlayEntity>()
+                override suspend fun getPendingPlaysForUser(userId: String) = emptyList<com.saurabh.artifact.data.local.PendingQualifiedPlayEntity>()
+                override suspend fun getPlayById(playId: String) = null
+                override suspend fun updateSyncStatus(playId: String, status: String, retryCount: Int, lastError: String?) {}
+                override suspend fun deletePlay(playId: String) {}
+                override suspend fun deletePlaysForUser(userId: String) = 0
+                override suspend fun reclaimOrphanedSyncs() = 0
+            }
+        }
+    )
     private val scope = CoroutineScope(
         Dispatchers.Main + 
         SupervisorJob() + 
@@ -219,6 +252,14 @@ class StartupCoordinator @Inject constructor(
                     // Execute authoritative local wipe
                     val result = logoutCoordinator.get().performFullCleanup(key)
                     if (result.status == com.saurabh.artifact.domain.auth.CleanupStatus.COMPLETED) {
+                        if (pendingUid != null) {
+                            try {
+                                qualifiedPlayRepository.get().deletePlaysForUser(pendingUid)
+                            } catch (e: Exception) {
+                                ArtifactLogger.e(DiagnosticCategory.STARTUP, "QUALIFIED_PLAY_DELETION_CLEANUP_FAILED", mapOf("uid" to pendingUid), e)
+                                throw e
+                            }
+                        }
                         ArtifactLogger.i(DiagnosticCategory.STARTUP, "RECOVERY_CLEANUP_SUCCESS")
                         maintenanceRepository.setPendingDeletion(null)
                         // Transition back to Arrival to allow normal startup to resume

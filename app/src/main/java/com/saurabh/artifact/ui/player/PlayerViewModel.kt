@@ -256,6 +256,8 @@ class PlayerViewModel @Inject constructor(
             resonanceSummary = if (isMetadataSynced) md.resonanceSummary else "",
             resonanceCount = if (isMetadataSynced) md.resonanceCount else 0,
             canShowResonators = if (isMetadataSynced) md.canShowResonators else false,
+            qualifiedPlayCount = if (isMetadataSynced) md.qualifiedPlayCount else (artifact?.qualifiedPlayCount ?: 0L),
+            commentCount = if (isMetadataSynced) md.commentCount else (artifact?.commentCount ?: 0L),
             playerMode = mode,
             isExpanded = expanded,
             showAdvancedControls = advanced
@@ -338,6 +340,8 @@ class PlayerViewModel @Inject constructor(
             listeningProgress = dynamic.listeningProgress,
             isExpanded = static.isExpanded,
             playerMode = effectivePlayerMode,
+            qualifiedPlayCount = static.qualifiedPlayCount,
+            commentCount = static.commentCount,
             isResonated = static.isResonated,
             resonanceSyncStatus = static.resonanceSyncStatus,
             selectedReactionType = static.selectedReactionType,
@@ -749,6 +753,8 @@ private data class PlayerStaticState(
     val resonanceCount: Int = 0,
     val resonanceSummary: String = "",
     val canShowResonators: Boolean = false,
+    val qualifiedPlayCount: Long = 0L,
+    val commentCount: Long = 0L,
     val playerMode: PlayerMode = PlayerMode.HIDDEN,
     val isExpanded: Boolean = false,
     val showAdvancedControls: Boolean = false

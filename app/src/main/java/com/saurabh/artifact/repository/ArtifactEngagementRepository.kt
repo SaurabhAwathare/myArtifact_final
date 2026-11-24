@@ -13,10 +13,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import java.util.TimeZone
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -51,20 +47,10 @@ class ArtifactEngagementRepository @Inject constructor(
 
             // 2. Persist to Firestore if authenticated AND consent given
             if (userId == null || !hasConsent) return@withContext Result.success(Unit)
-            
-            val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply {
-                timeZone = TimeZone.getTimeZone("UTC")
-            }.format(Date())
-            
-            val playEventId = "play_${userId}_${artifactId}_$today"
-            val playEventRef = firestore.collection("artifact_plays").document(playEventId)
-            
-            // Phase 1: Client logs play event, Cloud Function aggregates
-            playEventRef.set(mapOf(
-                "userId" to userId,
-                "artifactId" to artifactId,
-                "timestamp" to FieldValue.serverTimestamp()
-            )).await()
+
+            // [REMOVED - Phase 2.15C.3.1]: Legacy unqualified daily play event recording to artifact_plays is eliminated.
+            // Qualified play events are now durably tracked via QualifiedPlaySessionTracker and persisted locally to Room
+            // upon reaching the 10,000 ms elapsed listening threshold.
 
             // Update user preferences (Private Signal)
             val settingsRef = firestore.collection("users").document(userId)

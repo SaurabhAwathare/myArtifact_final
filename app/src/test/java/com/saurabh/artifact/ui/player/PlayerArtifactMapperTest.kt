@@ -50,4 +50,90 @@ class PlayerArtifactMapperTest {
 
         assertEquals(null, playerArtifact.episodeNumber)
     }
+
+    @Test
+    fun `toPlayerArtifact should map qualifiedPlayCount correctly`() {
+        val artifact = Artifact(
+            id = "test-qualified",
+            title = "Qualified Play Test",
+            qualifiedPlayCount = 42L,
+            playCount = 1000L,
+            status = ArtifactStatus.ACTIVE
+        )
+
+        val playerArtifact = artifact.toPlayerArtifact()
+
+        assertEquals(42L, playerArtifact.qualifiedPlayCount)
+    }
+
+    @Test
+    fun `toPlayerArtifact should keep historical playCount separate from qualifiedPlayCount`() {
+        val artifact = Artifact(
+            id = "test-separate",
+            title = "Separation Test",
+            playCount = 9999L,
+            qualifiedPlayCount = 7L,
+            status = ArtifactStatus.ACTIVE
+        )
+
+        val playerArtifact = artifact.toPlayerArtifact()
+
+        assertEquals(7L, playerArtifact.qualifiedPlayCount)
+        assertEquals(9999L, artifact.playCount)
+    }
+
+    @Test
+    fun `toPlayerArtifact should default missing qualifiedPlayCount to 0`() {
+        val artifact = Artifact(
+            id = "test-default",
+            title = "Default Test",
+            status = ArtifactStatus.ACTIVE
+        )
+
+        val playerArtifact = artifact.toPlayerArtifact()
+
+        assertEquals(0L, playerArtifact.qualifiedPlayCount)
+    }
+
+    @Test
+    fun `toPlayerArtifact should handle large valid qualifiedPlayCount without overflow or truncation`() {
+        val largeCount = 10_000_000_000L // 10 billion, exceeds 32-bit integer max
+        val artifact = Artifact(
+            id = "test-large",
+            title = "Large Count Test",
+            qualifiedPlayCount = largeCount,
+            status = ArtifactStatus.ACTIVE
+        )
+
+        val playerArtifact = artifact.toPlayerArtifact()
+
+        assertEquals(largeCount, playerArtifact.qualifiedPlayCount)
+    }
+
+    @Test
+    fun `toPlayerArtifact should map commentCount correctly`() {
+        val artifact = Artifact(
+            id = "test-comment",
+            title = "Comment Count Test",
+            commentCount = 15L,
+            status = ArtifactStatus.ACTIVE
+        )
+
+        val playerArtifact = artifact.toPlayerArtifact()
+
+        assertEquals(15L, playerArtifact.commentCount)
+    }
+
+    @Test
+    fun `toPlayerArtifact should default missing commentCount to 0`() {
+        val artifact = Artifact(
+            id = "test-comment-default",
+            title = "Default Comment Test",
+            status = ArtifactStatus.ACTIVE
+        )
+
+        val playerArtifact = artifact.toPlayerArtifact()
+
+        assertEquals(0L, playerArtifact.commentCount)
+    }
 }

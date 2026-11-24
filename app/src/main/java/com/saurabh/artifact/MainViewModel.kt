@@ -4,6 +4,7 @@ import android.os.Build
 import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
 import com.saurabh.artifact.worker.InteractionSyncWorker
+import com.saurabh.artifact.worker.QualifiedPlaySyncWorker
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -184,6 +185,7 @@ class MainViewModel @Inject constructor(
                 userProfileManager.initializeSafetySync(uid)
                 context?.let { ctx ->
                     InteractionSyncWorker.enqueue(ctx)
+                    QualifiedPlaySyncWorker.enqueue(ctx)
                 }
             } else if (uid == null || isMismatched) {
                 userProfileManager.stopSafetySync()
@@ -964,6 +966,7 @@ class MainViewModel @Inject constructor(
                 // Drain pending interaction queue on authenticated startup
                 context?.let { ctx ->
                     InteractionSyncWorker.enqueue(ctx)
+                    QualifiedPlaySyncWorker.enqueue(ctx)
                 }
             }
         }

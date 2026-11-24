@@ -28,7 +28,9 @@ data class PlayerArtifact(
     val isPublic: Boolean,
     val isDraft: Boolean,
     val episodeNumber: Long? = null,
-    val avatarConfig: AvatarConfiguration = AvatarConfiguration.DEFAULT
+    val avatarConfig: AvatarConfiguration = AvatarConfiguration.DEFAULT,
+    val qualifiedPlayCount: Long = 0L,
+    val commentCount: Long = 0L
 ) {
     val effectiveEmotions: List<String>
         get() = emotions.ifEmpty { if (emotion.isNotBlank()) listOf(emotion) else emptyList() }

@@ -310,6 +310,36 @@ object DatabaseMigrations {
         }
     }
 
+    /**
+     * Migration 81 -> 82: Durable Qualified Play Session Event Capture.
+     * Creates 'pending_qualified_plays' table with primary key 'playId',
+     * capturing qualified listening sessions at the 10,000 ms threshold.
+     */
+    val MIGRATION_81_82 = object : Migration(81, 82) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `pending_qualified_plays` (
+                    `playId` TEXT NOT NULL,
+                    `userId` TEXT NOT NULL,
+                    `artifactId` TEXT NOT NULL,
+                    `sessionIdentity` TEXT NOT NULL,
+                    `playbackDurationMs` INTEGER NOT NULL,
+                    `clientOccurredAt` INTEGER NOT NULL,
+                    `createdAt` INTEGER NOT NULL,
+                    `syncStatus` TEXT NOT NULL,
+                    `retryCount` INTEGER NOT NULL,
+                    `lastError` TEXT,
+                    PRIMARY KEY(`playId`)
+                )
+                """.trimIndent()
+            )
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_pending_qualified_plays_userId` ON `pending_qualified_plays` (`userId`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_pending_qualified_plays_artifactId` ON `pending_qualified_plays` (`artifactId`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_pending_qualified_plays_syncStatus` ON `pending_qualified_plays` (`syncStatus`)")
+        }
+    }
+
     val ALL_MIGRATIONS = arrayOf<Migration>(
         MIGRATION_60_61,
         MIGRATION_61_62,
@@ -324,6 +354,7 @@ object DatabaseMigrations {
         MIGRATION_77_78,
         MIGRATION_78_79,
         MIGRATION_79_80,
-        MIGRATION_80_81
+        MIGRATION_80_81,
+        MIGRATION_81_82
     )
 }

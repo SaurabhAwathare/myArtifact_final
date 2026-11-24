@@ -36,6 +36,10 @@ val ActionDestructive = Color(0xFFFF456A)
 val StatusError = Color(0xFFD96B5F)
 val StatusWarning = Color(0xFFFFB84D)
 
+// Persistent Toolbar Badges (Phase 2.18.2B)
+val CountBadgeBackground = RecordingActive // Circular red background (#E53935)
+val CountBadgeText = Color(0xFFFFFFFF) // Centered white text
+
 // Backward compatibility alias for existing usages
 val SoftError = StatusError
 

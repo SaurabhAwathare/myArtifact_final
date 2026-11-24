@@ -687,4 +687,92 @@ class GetPlayerContextUseCaseTest {
 
         job.cancel()
     }
+
+    @Test
+    fun `should propagate qualifiedPlayCount to PlayerMetadata for published artifact`() = runTest {
+        val artifactId = "art_qual_1"
+        val artifact = Artifact(
+            id = artifactId,
+            status = ArtifactStatus.ACTIVE,
+            qualifiedPlayCount = 42L,
+            playCount = 1000L
+        )
+        every { artifactRepository.observeArtifact(artifactId) } returns flowOf(artifact)
+
+        val emissions = mutableListOf<PlayerMetadata>()
+        val job = useCase.execute(MutableStateFlow(artifact)).onEach { emissions.add(it) }.launchIn(this)
+        runCurrent()
+
+        val last = emissions.last()
+        assertEquals(artifactId, last.artifactId)
+        assertEquals(42L, last.qualifiedPlayCount)
+
+        job.cancel()
+    }
+
+    @Test
+    fun `should update qualifiedPlayCount dynamically when observeArtifact snapshot updates`() = runTest {
+        val artifactId = "art_qual_live"
+        val initialArtifact = Artifact(
+            id = artifactId,
+            status = ArtifactStatus.ACTIVE,
+            qualifiedPlayCount = 5L
+        )
+        val liveSnapshotFlow = MutableStateFlow<Artifact?>(initialArtifact)
+        every { artifactRepository.observeArtifact(artifactId) } returns liveSnapshotFlow
+
+        val emissions = mutableListOf<PlayerMetadata>()
+        val job = useCase.execute(MutableStateFlow(initialArtifact)).onEach { emissions.add(it) }.launchIn(this)
+        runCurrent()
+
+        assertEquals(5L, emissions.last().qualifiedPlayCount)
+
+        // Remote snapshot update arrives (e.g. backend increments qualifiedPlayCount from 5 to 6)
+        val updatedArtifact = initialArtifact.copy(qualifiedPlayCount = 6L)
+        liveSnapshotFlow.value = updatedArtifact
+        runCurrent()
+
+        assertEquals(6L, emissions.last().qualifiedPlayCount)
+
+        job.cancel()
+    }
+
+    @Test
+    fun `should keep historical playCount separate and never substitute it for qualifiedPlayCount`() = runTest {
+        val artifactId = "art_legacy_invariance"
+        // Legacy artifact with high historical playCount but 0 qualifiedPlayCount
+        val artifact = Artifact(
+            id = artifactId,
+            status = ArtifactStatus.ACTIVE,
+            playCount = 50000L,
+            qualifiedPlayCount = 0L
+        )
+        every { artifactRepository.observeArtifact(artifactId) } returns flowOf(artifact)
+
+        val emissions = mutableListOf<PlayerMetadata>()
+        val job = useCase.execute(MutableStateFlow(artifact)).onEach { emissions.add(it) }.launchIn(this)
+        runCurrent()
+
+        val last = emissions.last()
+        assertEquals(0L, last.qualifiedPlayCount)
+
+        job.cancel()
+    }
+
+    @Test
+    fun `should set qualifiedPlayCount to 0 for drafts`() = runTest {
+        val draftId = "draft_qual_test"
+        val draft = Artifact(id = draftId, status = ArtifactStatus.DRAFT, isDraftField = true)
+        every { draftRepository.observeDraftAsArtifact(draftId) } returns flowOf(draft)
+
+        val emissions = mutableListOf<PlayerMetadata>()
+        val job = useCase.execute(MutableStateFlow(draft)).onEach { emissions.add(it) }.launchIn(this)
+        runCurrent()
+
+        val last = emissions.last()
+        assertEquals(draftId, last.artifactId)
+        assertEquals(0L, last.qualifiedPlayCount)
+
+        job.cancel()
+    }
 }

@@ -37,8 +37,39 @@ class SettingsRepository @Inject constructor(
     private val startupCoordinator: StartupCoordinator,
     private val maintenanceRepository: MaintenanceRepository,
     private val userSessionManager: UserSessionManager,
-    private val logoutCoordinator: dagger.Lazy<com.saurabh.artifact.domain.auth.LogoutCoordinator>
+    private val logoutCoordinator: dagger.Lazy<com.saurabh.artifact.domain.auth.LogoutCoordinator>,
+    private val qualifiedPlayRepository: dagger.Lazy<com.saurabh.artifact.repository.QualifiedPlayRepository>
 ) {
+    // Secondary constructor for backward compatibility with tests
+    constructor(
+        context: Context,
+        firestore: FirebaseFirestore,
+        authRepository: AuthRepository,
+        startupCoordinator: StartupCoordinator,
+        maintenanceRepository: MaintenanceRepository,
+        userSessionManager: UserSessionManager,
+        logoutCoordinator: dagger.Lazy<com.saurabh.artifact.domain.auth.LogoutCoordinator>
+    ) : this(
+        context = context,
+        firestore = firestore,
+        authRepository = authRepository,
+        startupCoordinator = startupCoordinator,
+        maintenanceRepository = maintenanceRepository,
+        userSessionManager = userSessionManager,
+        logoutCoordinator = logoutCoordinator,
+        qualifiedPlayRepository = dagger.Lazy {
+            object : com.saurabh.artifact.repository.QualifiedPlayRepository {
+                override suspend fun recordQualifiedPlay(event: com.saurabh.artifact.data.local.PendingQualifiedPlayEntity) = Result.success(Unit)
+                override suspend fun getPendingPlays() = emptyList<com.saurabh.artifact.data.local.PendingQualifiedPlayEntity>()
+                override suspend fun getPendingPlaysForUser(userId: String) = emptyList<com.saurabh.artifact.data.local.PendingQualifiedPlayEntity>()
+                override suspend fun getPlayById(playId: String) = null
+                override suspend fun updateSyncStatus(playId: String, status: String, retryCount: Int, lastError: String?) {}
+                override suspend fun deletePlay(playId: String) {}
+                override suspend fun deletePlaysForUser(userId: String) = 0
+                override suspend fun reclaimOrphanedSyncs() = 0
+            }
+        }
+    )
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val anonymousModeKey = booleanPreferencesKey("anonymous_mode")
     private val notificationsKey = booleanPreferencesKey("notifications_enabled")
@@ -198,7 +229,15 @@ class SettingsRepository @Inject constructor(
                 throw IllegalStateException("Local cleanup incomplete: ${cleanupResult.status}")
             }
 
-            // 6. Clear local deletion marker only after successful cleanup
+            // 6. Purge only the deleting account's pending Qualified Play records
+            try {
+                qualifiedPlayRepository.get().deletePlaysForUser(userId)
+            } catch (e: Exception) {
+                Log.e("SettingsRepository", "Failed to purge pending qualified plays during account deletion for $userId", e)
+                throw e
+            }
+
+            // 7. Clear local deletion marker only after successful cleanup
             maintenanceRepository.setPendingDeletion(null)
 
             Result.success(Unit)

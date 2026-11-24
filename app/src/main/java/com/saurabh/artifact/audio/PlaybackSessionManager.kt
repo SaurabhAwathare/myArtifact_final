@@ -52,6 +52,8 @@ class PlaybackSessionManager @Inject constructor(
     private val artifactRepository: Lazy<ArtifactRepository>,
     private val userRepository: Lazy<UserRepository>,
     private val diagnosticLogger: DiagnosticLogger,
+    private val qualifiedPlaySessionTracker: Lazy<QualifiedPlaySessionTracker>,
+    private val authRepository: Lazy<com.saurabh.artifact.repository.AuthRepository>,
 ) {
     private val scope = CoroutineScope(
         SupervisorJob() + 
@@ -140,12 +142,20 @@ class PlaybackSessionManager @Inject constructor(
                 setSkipSilenceInController(enabled)
             }
         }
+        scope.launch {
+            authRepository.get().currentUser.collect { user ->
+                qualifiedPlaySessionTracker.get().onUserChanged(user?.uid)
+            }
+        }
     }
 
     private val playerListener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             _isPlaying.value = isPlaying
             updatePositionSync()
+            scope.launch {
+                qualifiedPlaySessionTracker.get().onIsPlayingChanged(isPlaying)
+            }
             if (isPlaying) {
                 startPositionUpdates()
                 _currentArtifact.value?.let { analytics.trackPlaybackStart(it) }
@@ -157,6 +167,9 @@ class PlaybackSessionManager @Inject constructor(
 
         override fun onPlaybackStateChanged(state: Int) {
             _isBuffering.value = state == Player.STATE_BUFFERING
+            scope.launch {
+                qualifiedPlaySessionTracker.get().onPlaybackStateChanged(state)
+            }
             if (state == Player.STATE_READY) {
                 _durationMs.value = controller?.duration?.coerceAtLeast(0) ?: 0
                 errorRetryCount = 0 // Reset retry count on success
@@ -184,6 +197,9 @@ class PlaybackSessionManager @Inject constructor(
             reason: Int
         ) {
             updatePositionSync()
+            scope.launch {
+                qualifiedPlaySessionTracker.get().onPositionDiscontinuity(reason)
+            }
             
             // R041: Capture system-level seeks (notifications, bluetooth, etc.) 
             // and forward them to the engagement tracker to prevent false coverage.
@@ -200,6 +216,9 @@ class PlaybackSessionManager @Inject constructor(
         }
 
         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+            scope.launch {
+                qualifiedPlaySessionTracker.get().onPlayerError()
+            }
             val message = when (error.errorCode) {
                 androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED -> {
                     if (errorRetryCount < maxRetries) {
@@ -388,6 +407,7 @@ class PlaybackSessionManager @Inject constructor(
         currentPlayJob?.cancel()
         currentPlayJob = scope.launch {
             val player = getController() ?: return@launch
+            val currentUid = authRepository.get().currentUser.value?.uid ?: ""
             
             // Check if we are already playing this exact artifact to avoid redundant resets
             if ((player.currentMediaItem?.mediaId == artifact.id) && (player.playbackState != Player.STATE_IDLE)) {
@@ -395,6 +415,8 @@ class PlaybackSessionManager @Inject constructor(
                 // This handles cases where the domain model might have been cleared while 
                 // the player remained in a non-idle state (e.g. paused or ended).
                 _currentArtifact.value = artifact
+                val isExplicitReplay = (player.playbackState == Player.STATE_ENDED)
+                qualifiedPlaySessionTracker.get().onArtifactSelected(artifact, currentUid, isExplicitReplay)
                 
                 if ((initialPosition > 0) && (kotlin.math.abs(player.currentPosition - initialPosition) > 2000)) {
                     player.seekTo(initialPosition)
@@ -413,6 +435,7 @@ class PlaybackSessionManager @Inject constructor(
             
             _queue.value = newQueue
             _currentArtifact.value = artifact
+            qualifiedPlaySessionTracker.get().onArtifactSelected(artifact, currentUid, isExplicitReplay = false)
 
             val startIndex = newQueue.indexOfFirst { it.id == artifact.id }.coerceAtLeast(0)
 
@@ -544,6 +567,7 @@ class PlaybackSessionManager @Inject constructor(
 
     fun seekTo(position: Long) {
         scope.launch {
+            qualifiedPlaySessionTracker.get().onSeek()
             getController()?.seekTo(position)
             _currentPosition.value = position
             updatePositionSync()
@@ -553,6 +577,9 @@ class PlaybackSessionManager @Inject constructor(
 
     fun stop() {
         diagnosticLogger.info(DiagnosticCategory.PLAYER, "PLAYBACK_STOP_REQUESTED")
+        scope.launch {
+            qualifiedPlaySessionTracker.get().onPlaybackStopped()
+        }
         // Synchronously clear state to prevent race conditions in UI/Navigation
         _currentArtifact.value = null
         _activePlayback.value = null
@@ -574,6 +601,7 @@ class PlaybackSessionManager @Inject constructor(
                     _currentPosition.value = pos
                     _durationMs.value = dur
                     updatePositionSync()
+                    qualifiedPlaySessionTracker.get().onPlaybackTick()
                 }
                 delay(100.milliseconds)
             }
@@ -621,6 +649,9 @@ class PlaybackSessionManager @Inject constructor(
     fun release() {
         cleanupSyncJob?.cancel()
         positionUpdateJob?.cancel()
+        scope.launch {
+            qualifiedPlaySessionTracker.get().onPlaybackStopped()
+        }
         controller?.removeListener(playerListener)
         controllerFuture?.let { 
             try {

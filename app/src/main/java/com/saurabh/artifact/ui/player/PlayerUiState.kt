@@ -21,6 +21,10 @@ data class PlayerUiState(
     val isExpanded: Boolean = false,
     val playerMode: PlayerMode = PlayerMode.HIDDEN,
 
+    // Qualified Play Count (Phase 2.15C.4)
+    val qualifiedPlayCount: Long = 0L,
+    val commentCount: Long = 0L,
+
     // Interaction State
     val isResonated: Boolean = false,
     val resonanceSyncStatus: InteractionSyncStatus = InteractionSyncStatus.SYNCED,

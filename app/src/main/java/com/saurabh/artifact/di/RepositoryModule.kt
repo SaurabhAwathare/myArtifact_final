@@ -28,4 +28,18 @@ abstract class RepositoryModule {
     abstract fun bindCommentRepository(
         impl: FirestoreCommentRepository
     ): CommentRepository
+
+    @Binds
+    @Singleton
+    @Suppress("unused")
+    abstract fun bindQualifiedPlayRepository(
+        impl: com.saurabh.artifact.repository.QualifiedPlayRepositoryImpl
+    ): com.saurabh.artifact.repository.QualifiedPlayRepository
+
+    @Binds
+    @Singleton
+    @Suppress("unused")
+    abstract fun bindQualifiedPlayEligibilityChecker(
+        impl: com.saurabh.artifact.audio.QualifiedPlayEligibilityCheckerImpl
+    ): com.saurabh.artifact.audio.QualifiedPlayEligibilityChecker
 }

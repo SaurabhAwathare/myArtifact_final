@@ -19,8 +19,9 @@ import androidx.room.TypeConverters
         IgnoredUserEntity::class,
         UserConsumedPromptEntity::class,
         DisplayedNotificationEntity::class,
+        PendingQualifiedPlayEntity::class,
     ],
-    version = 81,
+    version = 82,
     autoMigrations = [
         AutoMigration(from = 64, to = 65),
         AutoMigration(from = 65, to = 66),
@@ -46,10 +47,12 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun ignoredUserDao(): IgnoredUserDao
     abstract fun userConsumedPromptDao(): UserConsumedPromptDao
     abstract fun displayedNotificationDao(): DisplayedNotificationDao
+    abstract fun pendingQualifiedPlayDao(): PendingQualifiedPlayDao
 
     /**
      * Clears transient session, feed, and cache tables during logout,
      * while explicitly preserving account-scoped offline interaction and local data tables:
+     * [PendingQualifiedPlayEntity] (`pending_qualified_plays`),
      * [PendingInteractionEntity] (`pending_interactions`), [DeadLetterInteractionEntity] (`dead_letter_interactions`),
      * [ArtifactEngagement] (`artifact_engagement`), [ArtifactDraftEntity] (`artifact_drafts`),
      * and [UserConsumedPromptEntity] (`user_consumed_prompts`).

@@ -35,7 +35,9 @@ object AudioModule {
         playableArtifactRepository: Lazy<com.saurabh.artifact.repository.PlayableArtifactRepository>,
         artifactRepository: Lazy<com.saurabh.artifact.repository.ArtifactRepository>,
         userRepository: Lazy<UserRepository>,
-        diagnosticLogger: com.saurabh.artifact.diagnostics.DiagnosticLogger
+        diagnosticLogger: com.saurabh.artifact.diagnostics.DiagnosticLogger,
+        qualifiedPlaySessionTracker: Lazy<com.saurabh.artifact.audio.QualifiedPlaySessionTracker>,
+        authRepository: Lazy<com.saurabh.artifact.repository.AuthRepository>
     ): PlaybackSessionManager = 
         PlaybackSessionManager(
             context, 
@@ -46,7 +48,9 @@ object AudioModule {
             playableArtifactRepository, 
             artifactRepository,
             userRepository,
-            diagnosticLogger
+            diagnosticLogger,
+            qualifiedPlaySessionTracker,
+            authRepository
         )
 
     @Provides

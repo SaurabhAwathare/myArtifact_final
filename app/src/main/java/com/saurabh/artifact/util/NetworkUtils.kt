@@ -83,7 +83,7 @@ object NetworkUtils {
             }
         }
 
-        return when (e) {
+        val directMatch = when (e) {
             is SocketTimeoutException,
             is UnknownHostException,
             is ConnectException,
@@ -105,11 +105,19 @@ object NetworkUtils {
                 when (e.code) {
                     FirebaseFirestoreException.Code.UNAVAILABLE,
                     FirebaseFirestoreException.Code.DEADLINE_EXCEEDED,
+                    FirebaseFirestoreException.Code.RESOURCE_EXHAUSTED,
                     FirebaseFirestoreException.Code.ABORTED -> true
                     else -> false
                 }
             }
             else -> false
         }
+
+        if (directMatch) return true
+        val cause = e.cause
+        if (cause != null && cause !== e) {
+            return isTransientError(cause)
+        }
+        return false
     }
 }
