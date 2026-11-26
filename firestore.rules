@@ -1,0 +1,624 @@
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Collection: users/{uid}
+// Document ID: Firebase Auth UID
+// Fields:
+//   - anonymousId: string (required) - Publicly visible identifier
+//   - anonymousName: string (required) - Display name for anonymous interactions
+//   - ... other user profile fields ...
+//
+// Collection: artifacts/{artifactId}
+// Document ID: auto-generated
+// Fields:
+//   - userId: string (required, immutable) - Creator's UID
+//   - isPublic: boolean (required) - Visibility toggle
+//   - author: map (required, immutable) - Snapshot of creator's anonymous identity
+//   - ... other artifact content fields ...
+//
+// Collection: artifacts/{artifactId}/comments
+// Document ID: auto-generated
+// Fields:
+//   - artifactId: string (required, immutable) - Parent artifact ID
+//   - creatorId: string (required, immutable) - UID of the author
+//   - author: map (required, immutable) - Snapshot of author identity
+//     - anonymousId: string (required)
+//     - name: string (required)
+//     - sigil: string (required)
+//   - text: string (required, 1-1000 chars) - Comment content
+//   - status: string (required, enum: ACTIVE, DELETED, HIDDEN, MODERATED)
+//   - createdAt: timestamp (server-generated, immutable)
+//   - updatedAt: timestamp (server-generated)
+// ===============================================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Business Purpose: Centralized visibility check for Artifacts and their sub-collections.
+    // Security Purpose: Single source of truth for read access.
+    function canReadArtifact(artifactId) {
+      let artifact = get(/databases/$(database)/documents/artifacts/$(artifactId)).data;
+      return (artifact.get('isPublic', false) == true ||
+             isArtifactOwner(artifactId) ||
+             isGlobalAdmin());
+    }
+
+    // Business Purpose: Determine if the resonators list should be visible based on Artifact policy.
+    // Security Purpose: Derives authorization from the authoritative Artifact document.
+    function canReadResonators(artifactId) {
+      let artifact = get(/databases/$(database)/documents/artifacts/$(artifactId)).data;
+      let mode = artifact.get('reactionVisibility', 'APPROXIMATE');
+      return canReadArtifact(artifactId) && (mode == 'VISIBLE' || mode == 'APPROXIMATE');
+    }
+
+    // --- HELPER FUNCTIONS ---
+    function isAuth() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    function isNotPendingDeletion(uid) {
+      return !exists(/databases/$(database)/documents/deleted_users/$(uid));
+    }
+
+    // Business Purpose: Verify that the caller's JWT activeSessionId matches the live Firestore activeSessionId.
+    // Security Purpose: Enforces One Active Device Per Account model and revokes access instantly upon session change.
+    function isActiveSession(uid) {
+      return isAuth() &&
+             request.auth.uid == uid &&
+             'activeSessionId' in request.auth.token &&
+             request.auth.token.activeSessionId != null &&
+             request.auth.token.activeSessionId != '' &&
+             exists(/databases/$(database)/documents/users/$(uid)/private/settings) &&
+             get(/databases/$(database)/documents/users/$(uid)/private/settings).data.get('activeSessionId', '') == request.auth.token.activeSessionId;
+    }
+
+    function isArtifactOwner(artifactId) {
+      return isAuth() &&
+             exists(/databases/$(database)/documents/artifacts/$(artifactId)) &&
+             get(/databases/$(database)/documents/artifacts/$(artifactId)).data.get('userId', null) == request.auth.uid;
+    }
+
+    function getCurrentAnonymousId() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.anonymousId;
+    }
+
+    // Business Purpose: Verify if the user has unlocked comments for a specific artifact.
+    // Security Purpose: Authoritative check against backend-verified engagement document.
+    function isCommentUnlocked(uid, artifactId) {
+      let path = /databases/$(database)/documents/users/$(uid)/engagement/$(artifactId);
+      return exists(path) && get(path).data.get('isCommentUnlocked', false) == true;
+    }
+
+    // Business Purpose: Identify fields that only the backend Cloud Function may modify.
+    // Security Purpose: Prevents client-side privilege escalation or manual unlocking.
+    function backendFields() {
+      return ['isCommentUnlocked', 'unlockTimestamp', 'unlockReason', 'engagementState', 'reprocessRequestedAt'];
+    }
+
+    // Business Purpose: Determine if user has global administrative rights.
+    // Security Purpose: Prevents non-admins from accessing moderation tools.
+    // Protected by: admin_rules.test.js
+    function isGlobalAdmin() {
+      return isAuth() &&
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)/private/settings) &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)/private/settings).data.get('isAdmin', false) == true;
+    }
+
+    // Business Purpose: Check if publishing is authoritatively enabled on the system configuration.
+    // Security Purpose: Prevents direct client-side artifact creation when publishing is paused.
+    function isPublishingEnabled() {
+      let configPath = /databases/$(database)/documents/system/config;
+      return exists(configPath) &&
+             get(configPath).data.get('publishingEnabled', false) == true;
+    }
+
+    function getIdentityMetadata(data) {
+      return data.get('identityMetadata', {});
+    }
+
+    function getIdentityVersion(meta) {
+      return meta.get('identityResetVersion', 0);
+    }
+
+    function getCompletedVersion(meta) {
+      return meta.get('lastCompletedIdentityVersion', 0);
+    }
+
+    function getResetCount(meta) {
+      return meta.get('emergencyResetCount', 0);
+    }
+
+    // Invariant: Identity versions must be monotonic and consistent.
+    function isValidIdentityUpdate(oldData, newData) {
+      let oldMeta = getIdentityMetadata(oldData);
+      let newMeta = getIdentityMetadata(newData);
+
+      let oldV = getIdentityVersion(oldMeta);
+      let newV = getIdentityVersion(newMeta);
+      let oldC = getCompletedVersion(oldMeta);
+      let newC = getCompletedVersion(newMeta);
+      let oldR = getResetCount(oldMeta);
+      let newR = getResetCount(newMeta);
+
+      return newV >= oldV &&
+             newC >= oldC &&
+             newC <= newV &&
+             newR >= oldR;
+    }
+
+    // --- USERS & PROFILES ---
+    match /users/{uid} {
+      allow read: if isOwner(uid);
+
+      allow update: if resource != null &&
+                   isOwner(uid) &&
+                   isNotPendingDeletion(uid) &&
+                   // Release Hardening: Block modification of privileged fields.
+                   // Migration Fix: Allow deletion of legacy fields, block all other modifications (add/change).
+                   !request.resource.data.diff(resource.data).changedKeys().hasAny([
+                     'isAdmin', 'admin', 'accountStatus', 'email', 'realName', 'fcmToken',
+                     'emotionPreferences', 'lastActivityTimestamp', 'softStreakCount', 'lastSeen'
+                   ]) &&
+                   !request.resource.data.diff(resource.data).addedKeys().hasAny([
+                     'isAdmin', 'admin', 'accountStatus', 'email', 'realName', 'fcmToken',
+                     'emotionPreferences', 'lastActivityTimestamp', 'softStreakCount', 'lastSeen'
+                   ]) &&
+                   isValidIdentityUpdate(resource.data, request.resource.data);
+
+      allow create: if isOwner(uid) &&
+                    isNotPendingDeletion(uid) &&
+                    !("isAdmin" in request.resource.data) &&
+                    !("admin" in request.resource.data) &&
+                    !("accountStatus" in request.resource.data);
+
+      // Consolidated Private Data (Zero-Trust Enforcement)
+      match /private/settings {
+        allow read: if isOwner(uid);
+        allow create: if isOwner(uid) &&
+                         isNotPendingDeletion(uid) &&
+                         request.resource.data.get('isAdmin', false) == false &&
+                         request.resource.data.get('accountStatus', 'ACTIVE') == 'ACTIVE' &&
+                         !('activeSessionId' in request.resource.data) &&
+                         !('lastTransferCorrelationId' in request.resource.data);
+        allow update: if isOwner(uid) &&
+                         isNotPendingDeletion(uid) &&
+                         !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+                           'isAdmin', 'accountStatus', 'admin',
+                           'activeSessionId', 'activeSessionCreatedAt', 'activeSessionUpdatedAt',
+                           'lastTransferCorrelationId', 'lastTransferTimestamp'
+                         ]);
+      }
+
+      // Authoritative Report Markers (Cross-Device Suppression)
+      // These are created by backend triggers to ensure user-specific hiding.
+      // Client is restricted to read-only access to prevent "un-hiding" unsafe content.
+      match /private/reports/{document=**} {
+        allow read: if isOwner(uid);
+        allow write: if false;
+      }
+
+      match /private/ignored_users/users/{targetId} {
+        allow read: if isOwner(uid) && isActiveSession(uid);
+        allow write: if isOwner(uid) && isNotPendingDeletion(uid) && isActiveSession(uid);
+      }
+
+      // --- MIGRATION AUDIT (Admin Only) ---
+      match /migration_audit/{docId} {
+        allow read, write: if false; // Strict isolation from all clients
+      }
+
+      match /private/published_artifacts/{document=**} {
+        allow read: if isOwner(uid) && isActiveSession(uid);
+        allow write: if false; // Server-managed publication reservations (Admin SDK only)
+      }
+
+      match /private/interactions/{document=**} {
+        allow read: if isOwner(uid) && isActiveSession(uid);
+        allow write: if isOwner(uid) && isNotPendingDeletion(uid) && isActiveSession(uid);
+      }
+
+      match /private/sequence {
+        allow read: if isOwner(uid) && isActiveSession(uid);
+        allow write: if false; // Only Cloud Functions (Admin SDK) can allocate episode sequence numbers
+      }
+
+      match /private/{docId} {
+        allow read: if isOwner(uid) && (docId == 'settings' || isActiveSession(uid));
+        allow write: if isOwner(uid) && isNotPendingDeletion(uid) && isActiveSession(uid) && docId != 'settings' && docId != 'sequence' && docId != 'published_artifacts';
+      }
+
+      // Resonance (Privacy Hardened in Phase 6.2.2)
+      match /resonance_in/{targetId} { allow read: if isOwner(uid) && isActiveSession(uid); allow write: if false; }
+      match /resonance_out/{targetId} { allow read: if isOwner(uid) && isActiveSession(uid); allow write: if false; }
+      match /followers/{targetId} { allow read: if isOwner(uid) && isActiveSession(uid); allow write: if false; }
+      match /following/{targetId} { allow read: if isOwner(uid) && isActiveSession(uid); allow write: if false; }
+
+      // Canonical Relationship Master Documents (Read-only for owner with active session; mutations via Cloud Functions)
+      match /relationships/{targetId} {
+        allow read: if isOwner(uid) && isActiveSession(uid);
+        allow write: if false;
+      }
+
+      // Saved Artifacts
+      match /savedArtifacts/{artifactId} {
+        allow read: if isOwner(uid) && isActiveSession(uid);
+        allow write: if isOwner(uid) && isNotPendingDeletion(uid) && isActiveSession(uid);
+      }
+
+      // Interaction Counters
+      match /counters/{artifactId} {
+        allow read: if isOwner(uid) && isActiveSession(uid);
+        allow write: if isOwner(uid) && isNotPendingDeletion(uid) && isActiveSession(uid);
+      }
+
+      // Engagement (Listen Before You Respond Enforcement)
+      match /engagement/{artifactId} {
+        allow read: if isOwner(uid) && isActiveSession(uid);
+        allow create: if isOwner(uid) &&
+                      isNotPendingDeletion(uid) &&
+                      isActiveSession(uid) &&
+                      !(request.resource.data.keys().hasAny(backendFields()));
+        allow update: if isOwner(uid) &&
+                      isNotPendingDeletion(uid) &&
+                      isActiveSession(uid) &&
+                      !(request.resource.data.diff(resource.data).affectedKeys().hasAny(backendFields()));
+      }
+
+      // --- ABUSE PROTECTED INTENTS ---
+      match /private/intents/follow/{targetAnonId} {
+        allow read: if isOwner(uid) && isActiveSession(uid);
+        allow write: if isOwner(uid) && isNotPendingDeletion(uid) && isActiveSession(uid);
+      }
+
+      match /private/intents/reactions/{artifactId} {
+        allow create: if isOwner(uid) && isNotPendingDeletion(uid) && isActiveSession(uid) && !isArtifactOwner(artifactId);
+        allow update, delete: if isOwner(uid) && isNotPendingDeletion(uid) && isActiveSession(uid);
+      }
+
+      match /private/intents/comments/{commentId} {
+        // Owner can read only their own comment intent.
+        // Supports document reads and single-document snapshot listeners.
+        allow get: if isOwner(uid) && isActiveSession(uid);
+
+        // Prevent collection enumeration.
+        allow list: if false;
+
+        // Only valid client-created fields are permitted.
+        allow create: if isOwner(uid) &&
+                      isNotPendingDeletion(uid) &&
+                      isActiveSession(uid) &&
+                      'artifactId' in request.resource.data &&
+                      request.resource.data.artifactId is string &&
+                      'text' in request.resource.data &&
+                      request.resource.data.text is string &&
+                      request.resource.data.text.size() >= 1 &&
+                      request.resource.data.text.size() <= 1000 &&
+                      (!('status' in request.resource.data) ||
+                       request.resource.data.status == 'PENDING') &&
+                      request.resource.data.keys().hasOnly([
+                        'artifactId',
+                        'text',
+                        'authorAnonymousId',
+                        'author',
+                        'identityVersion',
+                        'identityPropagationVersion',
+                        'status'
+                      ]) &&
+                      (
+                        isArtifactOwner(request.resource.data.artifactId) ||
+                        isCommentUnlocked(uid, request.resource.data.artifactId)
+                      );
+
+        // Only a RATE_LIMITED intent can receive a retry request.
+        // Client may change only clientRetryRequestedAt.
+        allow update: if isOwner(uid) &&
+                      isNotPendingDeletion(uid) &&
+                      isActiveSession(uid) &&
+                      resource.data.get('status', '') == 'RATE_LIMITED' &&
+                      request.resource.data.diff(resource.data)
+                        .affectedKeys()
+                        .hasOnly(['clientRetryRequestedAt']) &&
+                      'clientRetryRequestedAt' in request.resource.data &&
+                      (
+                        request.resource.data.clientRetryRequestedAt is int ||
+                        request.resource.data.clientRetryRequestedAt is float
+                      ) &&
+                      (
+                        !('clientRetryRequestedAt' in resource.data) ||
+                        request.resource.data.clientRetryRequestedAt >
+                          resource.data.clientRetryRequestedAt
+                      ) &&
+                      (
+                        !('lastConsumedRetryAt' in resource.data) ||
+                        request.resource.data.clientRetryRequestedAt >
+                          resource.data.lastConsumedRetryAt
+                      ) &&
+                      request.resource.data.clientRetryRequestedAt <=
+                        request.time.toMillis();
+
+        // Clients cannot delete comment intents.
+        allow delete: if false;
+      }
+    }
+
+    // --- ARTIFACTS (The Hearth) ---
+    match /artifacts/{artifactId} {
+      allow read: if resource.data.isPublic == true ||
+                    isArtifactOwner(artifactId) ||
+                    isGlobalAdmin();
+
+      function isCreationStatusValid(data) {
+        let status = data.get('status', 'PENDING_UPLOAD');
+        let audioUrl = data.get('audioUrl', '');
+        // Legitimate creation states:
+        // 1. New artifact starting upload: PENDING_UPLOAD/DRAFT + No audioUrl
+        // 2. Resuming/Checkpoint creation: ACTIVE + audioUrl present
+        return (status in ['PENDING_UPLOAD', 'DRAFT'] && audioUrl == '') ||
+               (status == 'ACTIVE' && audioUrl != '');
+      }
+
+      function isCreationFieldsValid(data) {
+        return data.get('playCount', 0) == 0 &&
+               data.get('reactionCount', 0) == 0 &&
+               data.get('commentCount', 0) == 0 &&
+               data.get('reportCount', 0) == 0 &&
+               data.get('status', '') in ['ACTIVE', 'PENDING_UPLOAD', 'DRAFT'] &&
+               data.get('isDraft', true) == (data.get('status', '') in ['PENDING_UPLOAD', 'DRAFT']);
+      }
+
+      allow create: if isAuth() &&
+                    isNotPendingDeletion(request.auth.uid) &&
+                    isPublishingEnabled() &&
+                    isActiveSession(request.auth.uid) &&
+                    request.resource.data.get('userId', '') == request.auth.uid &&
+                    // Registry Check: Verify user created the private ownership record first
+                    exists(/databases/$(database)/documents/users/$(request.auth.uid)/private/published_artifacts/artifacts/$(artifactId)) &&
+                    request.resource.data.author.anonymousId == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.anonymousId &&
+                    request.resource.data.author.keys().hasAll(['anonymousId', 'name']) &&
+                    request.resource.data.get('identityVersion', 0) == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.identityMetadata.get('identityResetVersion', 0) &&
+                    request.resource.data.get('identityPropagationVersion', 0) == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.identityMetadata.get('identityResetVersion', 0) &&
+                    isCreationStatusValid(request.resource.data) &&
+                    isCreationFieldsValid(request.resource.data);
+
+      function isValidLifecycleTransition(oldData, newData) {
+        let oldStatus = oldData.get('status', 'PENDING_UPLOAD');
+        let newStatus = newData.get('status', 'PENDING_UPLOAD');
+        // Allowed: status unchanged, or PENDING_UPLOAD/DRAFT -> ACTIVE (Publication), or ANY -> DELETED
+        return (oldStatus == newStatus) ||
+               (oldStatus in ['PENDING_UPLOAD', 'DRAFT'] && newStatus == 'ACTIVE') ||
+               (newStatus == 'DELETED');
+      }
+
+      allow update: if (resource != null && isGlobalAdmin()) ||
+                    (resource != null &&
+                     isArtifactOwner(artifactId) &&
+                     isNotPendingDeletion(request.auth.uid) &&
+                     isActiveSession(request.auth.uid) &&
+                     isValidLifecycleTransition(resource.data, request.resource.data) &&
+                     // createdAt is immutable
+                     request.resource.data.get('createdAt', null) == resource.data.get('createdAt', null) &&
+                     // audioUrl is immutable once ACTIVE
+                     (resource.data.status != 'ACTIVE' || resource.data.audioUrl == request.resource.data.audioUrl) &&
+                     !(request.resource.data.diff(resource.data).affectedKeys()
+                       .hasAny(['userId', 'author', 'reactionCount', 'commentCount', 'playCount', 'qualifiedPlayCount', 'reportCount', 'recommendationState', 'moderation', 'moderationStatus', 'toxicityScore', 'safetyConcernCount', 'reporterIds', 'identityVersion', 'identityPropagationVersion'])));
+
+      // Prevent users from hard-deleting the Artifact document to ensure Cloud Function trigger
+      allow delete: if isGlobalAdmin();
+
+      match /stats/resonance {
+        allow read: if true;
+        allow write: if false;
+      }
+
+      // --- COMMENTS SUBCOLLECTION ---
+      match /comments/{commentId} {
+        // Read: Reuse Artifact visibility logic
+        allow read: if resource == null || canReadArtifact(artifactId);
+
+        // Create: BLOCK DIRECT CREATION (Moved to intents/comments for R070 Rate Limiting)
+        // Only Admins or Internal System can create directly.
+        allow create: if isGlobalAdmin();
+
+        // Update: Only owner can soft-delete (status: DELETED), or artifact owner can update creatorReaction
+        allow update: if (isAuth() && isNotPendingDeletion(request.auth.uid) && (
+                      (request.auth.uid == get(/databases/$(database)/documents/persona_mapping/$(resource.data.authorAnonymousId)).data.userId &&
+                       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']) &&
+                       request.resource.data.status == 'DELETED' &&
+                       request.resource.data.get('artifactId', '') == resource.data.get('artifactId', '')) ||
+                      (isArtifactOwner(artifactId) &&
+                       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['creatorReaction']))
+                    )) || isGlobalAdmin();
+
+        // Delete: Hard delete only allowed for admins
+        allow delete: if isGlobalAdmin();
+      }
+    }
+
+    match /artifact_reaction_counts/{artifactId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /artifact_stats/{artifactId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /community/{docId} {
+      allow read: if isAuth();
+      allow write: if false;
+    }
+
+    match /artifact_plays/{id} {
+      allow read: if isAuth() && (resource == null || resource.data.userId == request.auth.uid);
+      allow create: if isAuth() &&
+                    isNotPendingDeletion(request.auth.uid) &&
+                    request.auth.token.firebase.sign_in_provider == 'google.com' &&
+                    isActiveSession(request.auth.uid) &&
+                    request.resource.data.userId == request.auth.uid &&
+                    id == "play_" + request.auth.uid + "_" + request.resource.data.sessionIdentity &&
+                    request.resource.data.playId == id &&
+                    request.resource.data.keys().hasAll(['playId', 'userId', 'artifactId', 'sessionIdentity', 'playbackDurationMs', 'clientOccurredAt', 'serverReceivedAt']) &&
+                    request.resource.data.keys().hasOnly(['playId', 'userId', 'artifactId', 'sessionIdentity', 'playbackDurationMs', 'clientOccurredAt', 'serverReceivedAt']) &&
+                    request.resource.data.playbackDurationMs is int &&
+                    request.resource.data.playbackDurationMs >= 10000 &&
+                    request.resource.data.clientOccurredAt is timestamp &&
+                    request.resource.data.clientOccurredAt >= request.time - duration.value(30, 'd') &&
+                    request.resource.data.clientOccurredAt <= request.time + duration.value(5, 'm') &&
+                    request.resource.data.serverReceivedAt is timestamp &&
+                    request.resource.data.serverReceivedAt == request.time &&
+                    exists(/databases/$(database)/documents/artifacts/$(request.resource.data.artifactId)) &&
+                    request.auth.uid != get(/databases/$(database)/documents/artifacts/$(request.resource.data.artifactId)).data.get('userId', '');
+      allow update, delete: if false;
+    }
+
+    match /usernames/{id} {
+      function isValidUsernameId(nameId) {
+        return nameId.size() >= 3 &&
+               nameId.size() <= 30 &&
+               nameId == nameId.lower() &&
+               nameId.matches('^[a-z0-9_@.·][a-z0-9_@.· ]+[a-z0-9_@.·]$') &&
+               !(nameId in ['admin', 'administrator', 'moderator', 'mod', 'support', 'official', 'artifact', 'system', 'anonymous', 'root']);
+      }
+
+      function isUsernameOwnedByProfile(nameId) {
+        return existsAfter(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+               getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('anonymousName', '').lower() == nameId;
+      }
+
+      allow read: if isAuth();
+      allow create: if isAuth() &&
+                    isNotPendingDeletion(request.auth.uid) &&
+                    isValidUsernameId(id) &&
+                    isUsernameOwnedByProfile(id) &&
+                    !('uid' in request.resource.data) &&
+                    !('userId' in request.resource.data) &&
+                    request.resource.data.reserved == true &&
+                    request.resource.data.status == 'ACTIVE' &&
+                    request.resource.data.keys().hasOnly(['reserved', 'status', 'createdAt']);
+      allow update: if isAuth() &&
+                    isNotPendingDeletion(request.auth.uid) &&
+                    isActiveSession(request.auth.uid) &&
+                    get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('anonymousName', '').lower() == id &&
+                    (!('status' in resource.data) || resource.data.status == 'ACTIVE') &&
+                    !('uid' in request.resource.data) &&
+                    !('userId' in request.resource.data) &&
+                    request.resource.data.reserved == true &&
+                    request.resource.data.status == 'RETIRED' &&
+                    request.resource.data.keys().hasOnly(['reserved', 'status', 'createdAt', 'retiredAt']);
+      allow delete: if false;
+    }
+
+    // --- PUBLIC PROFILES (Sanitized) ---
+    match /profiles/{anonymousId} {
+      allow read: if true;
+      allow write: if false; // Only Cloud Functions can write
+    }
+
+    // --- PERSONA MAPPING (Private Routing) ---
+    match /persona_mapping/{anonymousId} {
+      allow read, write: if false; // Strict Server-Only access
+    }
+
+    // --- CONSOLIDATED REACTIONS ---
+    match /artifact_reactions/{id} {
+      allow read: if isGlobalAdmin() ||
+                   (isAuth() && (
+                     request.auth.uid == get(/databases/$(database)/documents/persona_mapping/$(resource.data.authorAnonymousId)).data.userId ||
+                     isArtifactOwner(resource.data.artifactId) ||
+                     canReadResonators(resource.data.artifactId)
+                   ));
+
+      // AUTHORITATIVE AUTHORIZATION: Validate persona from private record
+      allow create: if isAuth() &&
+                    isNotPendingDeletion(request.auth.uid) &&
+                    request.resource.data.authorAnonymousId == getCurrentAnonymousId();
+
+      allow write: if false;
+    }
+
+    // --- NOTIFICATIONS & REPORTS ---
+    match /notifications/{id} {
+      allow read: if request.auth != null && resource != null && request.auth.uid == resource.data.get('userId', '');
+      allow delete: if request.auth != null && resource != null && request.auth.uid == resource.data.get('userId', '') && isNotPendingDeletion(request.auth.uid);
+      allow update: if request.auth != null && resource != null && request.auth.uid == resource.data.get('userId', '') && isNotPendingDeletion(request.auth.uid) &&
+                    request.resource.data.diff(resource.data).affectedKeys().hasOnly(['isRead']);
+      allow create: if false;
+    }
+
+    match /reports/{reportId} {
+      // Deterministic IDs are used for Artifact reports: {uid}_{artifactId}
+      // Generic IDs are used for other report types (Comment, Identity, etc.)
+      // Integrity Invariant: user can only create/read their own reports.
+      allow create: if isAuth() &&
+                    isNotPendingDeletion(request.auth.uid) &&
+                    isActiveSession(request.auth.uid) &&
+                    request.resource.data.reporterId == request.auth.uid &&
+                    (reportId == request.auth.uid + "_" + request.resource.data.get('artifactId', 'NA') ||
+                     reportId == request.auth.uid + "_" + request.resource.data.get('commentId', 'NA') ||
+                     reportId.matches("^" + request.auth.uid + "_.*"));
+      allow read: if isGlobalAdmin() || (isAuth() && (resource.data.reporterId == request.auth.uid || reportId.matches("^" + request.auth.uid + "_.*")));
+      allow write: if isGlobalAdmin();
+    }
+
+    match /listening_sessions/{sessionId} {
+      allow read: if isAuth() && (resource == null || resource.data.userId == request.auth.uid);
+      allow write: if isAuth() && isNotPendingDeletion(request.auth.uid) && (resource == null || resource.data.userId == request.auth.uid);
+      allow create: if isAuth() && isNotPendingDeletion(request.auth.uid) && request.resource.data.userId == request.auth.uid;
+    }
+
+    match /isolation_test/repro_doc {
+      allow read: if isAuth();
+    }
+
+    match /recommendation_profiles/{uid} {
+      allow read: if isOwner(uid);
+    }
+
+    match /feedback_private/{feedbackId} {
+      allow create: if isAuth() &&
+                    isNotPendingDeletion(request.auth.uid) &&
+                    feedbackId.matches("^" + request.auth.uid + "_.*");
+      allow read: if false; // Private to backend only
+    }
+
+    // --- DELETED USERS TOMBSTONES ---
+    match /deleted_users/{uid} {
+      allow read: if isAuth() && request.auth.uid == uid;
+      allow create: if isAuth() &&
+                    request.auth.uid == uid &&
+                    request.auth.token.firebase.sign_in_provider == 'google.com' &&
+                    request.resource.data.state == 'PENDING_DELETION' &&
+                    request.resource.data.initiatedAt == request.time &&
+                    request.resource.data.keys().hasAll(['state', 'initiatedAt']) &&
+                    request.resource.data.keys().hasOnly(['state', 'initiatedAt']);
+      allow update, delete: if false;
+    }
+
+    // --- SYSTEM CONFIGURATION ---
+    match /system/{document=**} {
+      allow read, write: if isGlobalAdmin();
+    }
+
+    // --- MODERATION ---
+    match /moderation_queue/{artifactId} {
+      allow read: if isGlobalAdmin();
+      allow write: if false;
+    }
+
+    match /admin_alerts/{alertId} {
+      allow read: if isGlobalAdmin();
+      allow write: if false;
+    }
+
+    match /moderation_audit_logs/{id} {
+      allow read, write: if false; // Internal Audit Only (Cloud Functions)
+    }
+  }
+}
