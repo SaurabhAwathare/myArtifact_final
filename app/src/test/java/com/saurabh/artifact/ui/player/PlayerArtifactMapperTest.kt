@@ -136,4 +136,67 @@ class PlayerArtifactMapperTest {
 
         assertEquals(0L, playerArtifact.commentCount)
     }
+
+    @Test
+    fun `toPlayerArtifact should map savedCount correctly`() {
+        val artifact = Artifact(
+            id = "test-saved",
+            title = "Saved Count Test",
+            savedCount = 37L,
+            status = ArtifactStatus.ACTIVE
+        )
+
+        val playerArtifact = artifact.toPlayerArtifact()
+
+        assertEquals(37L, playerArtifact.savedCount)
+    }
+
+    @Test
+    fun `toPlayerArtifact should default missing savedCount to 0`() {
+        val artifact = Artifact(
+            id = "test-saved-default",
+            title = "Default Saved Count Test",
+            status = ArtifactStatus.ACTIVE
+        )
+
+        val playerArtifact = artifact.toPlayerArtifact()
+
+        assertEquals(0L, playerArtifact.savedCount)
+    }
+
+    @Test
+    fun `toPlayerArtifact should keep savedCount independent from playCount, qualifiedPlayCount, reactionCount, and commentCount`() {
+        val artifact = Artifact(
+            id = "test-independent",
+            title = "Independence Test",
+            playCount = 1000L,
+            qualifiedPlayCount = 50L,
+            reactionCount = 25L,
+            commentCount = 10L,
+            savedCount = 5L,
+            status = ArtifactStatus.ACTIVE
+        )
+
+        val playerArtifact = artifact.toPlayerArtifact()
+
+        assertEquals(1000L, artifact.playCount)
+        assertEquals(50L, playerArtifact.qualifiedPlayCount)
+        assertEquals(10L, playerArtifact.commentCount)
+        assertEquals(5L, playerArtifact.savedCount)
+    }
+
+    @Test
+    fun `toPlayerArtifact should handle large valid savedCount without overflow or truncation`() {
+        val largeCount = 10_000_000_000L
+        val artifact = Artifact(
+            id = "test-large-saved",
+            title = "Large Saved Count Test",
+            savedCount = largeCount,
+            status = ArtifactStatus.ACTIVE
+        )
+
+        val playerArtifact = artifact.toPlayerArtifact()
+
+        assertEquals(largeCount, playerArtifact.savedCount)
+    }
 }

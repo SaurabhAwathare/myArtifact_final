@@ -1,10 +1,13 @@
 package com.saurabh.artifact.data.local
 
+import androidx.room.Room
 import androidx.room.testing.MigrationTestHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -717,6 +720,225 @@ class DatabaseMigrationTest {
         assertEquals(42, cursor81.getInt(cursor81.getColumnIndexOrThrow("cachedProgressionCount")))
         assertEquals("{\"skinTone\":\"tone_1\"}", cursor81.getString(avatarColIdx))
         cursor81.close()
+    }
+
+    /**
+     * Verifies isolated migration from 82 to 83.
+     * Validates addition of qualifiedPlayCount column to artifacts table,
+     * preservation of existing artifact rows and counters, default value 0 for existing rows,
+     * support for nonzero values, and opening through current AppDatabase Room configuration.
+     */
+    @Test
+    @Throws(IOException::class)
+    fun migrate82To83_isolated() {
+        helper.createDatabase(TEST_DB, 82).apply {
+            execSQL(
+                """
+                INSERT INTO artifacts (
+                    id, userId, authorAnonymousId, authorName, authorSigil,
+                    authorSigilSeed, authorSigilColor, authorSigilConfigJson,
+                    audioUrl, createdAt, durationMs, title, description,
+                    emotion, emotions, primaryStyle, emotionTag,
+                    playCount, reactionCount, commentCount, reportCount, safetyConcernCount,
+                    reporterIds, amplitudeData, transcriptUrl, status, recommendationState,
+                    isDraft, isEncrypted, identityVersion, identityPropagationVersion,
+                    resonanceDepth, humanIntegrityFactor, lastUpdated, episodeNumber
+                ) VALUES (
+                    'art_v82', 'user_v82', 'anon_v82', 'Author 82', 'sigil_82',
+                    'seed_82', '#123456', '{}',
+                    'https://example.com/82.m4a', 1700000000000, 15000, 'Legacy Title', 'Legacy Desc',
+                    'CALM', '["CALM"]', NULL, 'Calm',
+                    150, 12, 7, 0, 0,
+                    '[]', '[0.1,0.2]', NULL, 'ACTIVE', 'ACTIVE',
+                    0, 0, 1, 1,
+                    0.5, 1.0, 1700000000000, 3
+                )
+                """.trimIndent()
+            )
+            close()
+        }
+
+        val db = helper.runMigrationsAndValidate(TEST_DB, 83, true, DatabaseMigrations.MIGRATION_82_83)
+
+        // 1-4. Existing row survives with playCount, reactionCount, commentCount unchanged and qualifiedPlayCount = 0
+        val legacyCursor = db.query("SELECT * FROM artifacts WHERE id = 'art_v82'")
+        assert(legacyCursor.moveToFirst())
+        assertEquals("art_v82", legacyCursor.getString(legacyCursor.getColumnIndexOrThrow("id")))
+        assertEquals(150L, legacyCursor.getLong(legacyCursor.getColumnIndexOrThrow("playCount")))
+        assertEquals(12L, legacyCursor.getLong(legacyCursor.getColumnIndexOrThrow("reactionCount")))
+        assertEquals(7L, legacyCursor.getLong(legacyCursor.getColumnIndexOrThrow("commentCount")))
+        assertEquals(0L, legacyCursor.getLong(legacyCursor.getColumnIndexOrThrow("qualifiedPlayCount")))
+        legacyCursor.close()
+
+        // 5. New column accepts and returns nonzero value
+        db.execSQL(
+            """
+            INSERT INTO artifacts (
+                id, userId, authorAnonymousId, authorName, authorSigil,
+                authorSigilSeed, authorSigilColor, authorSigilConfigJson,
+                audioUrl, createdAt, durationMs, title, description,
+                emotion, emotions, primaryStyle, emotionTag,
+                playCount, qualifiedPlayCount, reactionCount, commentCount, reportCount, safetyConcernCount,
+                reporterIds, amplitudeData, transcriptUrl, status, recommendationState,
+                isDraft, isEncrypted, identityVersion, identityPropagationVersion,
+                resonanceDepth, humanIntegrityFactor, lastUpdated, episodeNumber
+            ) VALUES (
+                'art_v83', 'user_v83', 'anon_v83', 'Author 83', 'sigil_83',
+                'seed_83', '#654321', '{}',
+                'https://example.com/83.m4a', 1700000005000, 20000, 'Modern Title', 'Modern Desc',
+                'JOY', '["JOY"]', NULL, 'Joy',
+                999, 42, 25, 9, 0, 0,
+                '[]', '[0.3,0.4]', NULL, 'ACTIVE', 'ACTIVE',
+                0, 0, 1, 1,
+                0.7, 1.0, 1700000005000, 4
+            )
+            """.trimIndent()
+        )
+        val modernCursor = db.query("SELECT playCount, qualifiedPlayCount FROM artifacts WHERE id = 'art_v83'")
+        assert(modernCursor.moveToFirst())
+        assertEquals(999L, modernCursor.getLong(modernCursor.getColumnIndexOrThrow("playCount")))
+        assertEquals(42L, modernCursor.getLong(modernCursor.getColumnIndexOrThrow("qualifiedPlayCount")))
+        modernCursor.close()
+        db.close()
+
+        // 6. Migrated database opens successfully through current Room database configuration
+        val roomDb = Room.databaseBuilder(
+            InstrumentationRegistry.getInstrumentation().targetContext,
+            AppDatabase::class.java,
+            TEST_DB
+        )
+            .addMigrations(*DatabaseMigrations.ALL_MIGRATIONS)
+            .allowMainThreadQueries()
+            .build()
+
+        try {
+            runBlocking {
+                val legacyEntity = roomDb.artifactDao().getArtifactById("art_v82")
+                assertNotNull(legacyEntity)
+                assertEquals(150L, legacyEntity?.playCount)
+                assertEquals(12L, legacyEntity?.reactionCount)
+                assertEquals(7L, legacyEntity?.commentCount)
+                assertEquals(0L, legacyEntity?.qualifiedPlayCount)
+
+                val modernEntity = roomDb.artifactDao().getArtifactById("art_v83")
+                assertNotNull(modernEntity)
+                assertEquals(999L, modernEntity?.playCount)
+                assertEquals(42L, modernEntity?.qualifiedPlayCount)
+            }
+        } finally {
+            roomDb.close()
+        }
+    }
+
+    /**
+     * Migration 83 -> 84: Saved Listener Count Persistence in Artifacts Cache.
+     * Verifies that existing Artifact rows are preserved with savedCount defaulting to 0,
+     * the column accepts non-zero values, and Room validates schema successfully.
+     */
+    @Test
+    @Throws(IOException::class)
+    fun migrate83To84_isolated() {
+        helper.createDatabase(TEST_DB, 83).apply {
+            execSQL(
+                """
+                INSERT INTO artifacts (
+                    id, userId, authorAnonymousId, authorName, authorSigil,
+                    authorSigilSeed, authorSigilColor, authorSigilConfigJson,
+                    audioUrl, createdAt, durationMs, title, description,
+                    emotion, emotions, primaryStyle, emotionTag,
+                    playCount, qualifiedPlayCount, reactionCount, commentCount, reportCount, safetyConcernCount,
+                    reporterIds, amplitudeData, transcriptUrl, status, recommendationState,
+                    isDraft, isEncrypted, identityVersion, identityPropagationVersion,
+                    resonanceDepth, humanIntegrityFactor, lastUpdated, episodeNumber
+                ) VALUES (
+                    'art_v83', 'user_v83', 'anon_v83', 'Author 83', 'sigil_83',
+                    'seed_83', '#123456', '{}',
+                    'https://example.com/83.m4a', 1700000000000, 15000, 'Legacy Title', 'Legacy Desc',
+                    'CALM', '["CALM"]', NULL, 'Calm',
+                    150, 42, 12, 7, 0, 0,
+                    '[]', '[0.1,0.2]', NULL, 'ACTIVE', 'ACTIVE',
+                    0, 0, 1, 1,
+                    0.5, 1.0, 1700000000000, 3
+                )
+                """.trimIndent()
+            )
+            close()
+        }
+
+        val db = helper.runMigrationsAndValidate(TEST_DB, 84, true, DatabaseMigrations.MIGRATION_83_84)
+
+        // 1-4. Existing row survives with playCount, qualifiedPlayCount, reactionCount, commentCount unchanged and savedCount = 0
+        val legacyCursor = db.query("SELECT * FROM artifacts WHERE id = 'art_v83'")
+        assert(legacyCursor.moveToFirst())
+        assertEquals("art_v83", legacyCursor.getString(legacyCursor.getColumnIndexOrThrow("id")))
+        assertEquals(150L, legacyCursor.getLong(legacyCursor.getColumnIndexOrThrow("playCount")))
+        assertEquals(42L, legacyCursor.getLong(legacyCursor.getColumnIndexOrThrow("qualifiedPlayCount")))
+        assertEquals(12L, legacyCursor.getLong(legacyCursor.getColumnIndexOrThrow("reactionCount")))
+        assertEquals(7L, legacyCursor.getLong(legacyCursor.getColumnIndexOrThrow("commentCount")))
+        assertEquals(0L, legacyCursor.getLong(legacyCursor.getColumnIndexOrThrow("savedCount")))
+        legacyCursor.close()
+
+        // 5. New column accepts and returns nonzero value
+        db.execSQL(
+            """
+            INSERT INTO artifacts (
+                id, userId, authorAnonymousId, authorName, authorSigil,
+                authorSigilSeed, authorSigilColor, authorSigilConfigJson,
+                audioUrl, createdAt, durationMs, title, description,
+                emotion, emotions, primaryStyle, emotionTag,
+                playCount, qualifiedPlayCount, reactionCount, commentCount, savedCount, reportCount, safetyConcernCount,
+                reporterIds, amplitudeData, transcriptUrl, status, recommendationState,
+                isDraft, isEncrypted, identityVersion, identityPropagationVersion,
+                resonanceDepth, humanIntegrityFactor, lastUpdated, episodeNumber
+            ) VALUES (
+                'art_v84', 'user_v84', 'anon_v84', 'Author 84', 'sigil_84',
+                'seed_84', '#654321', '{}',
+                'https://example.com/84.m4a', 1700000005000, 20000, 'Modern Title', 'Modern Desc',
+                'JOY', '["JOY"]', NULL, 'Joy',
+                999, 50, 25, 9, 18, 0, 0,
+                '[]', '[0.3,0.4]', NULL, 'ACTIVE', 'ACTIVE',
+                0, 0, 1, 1,
+                0.7, 1.0, 1700000005000, 4
+            )
+            """.trimIndent()
+        )
+        val modernCursor = db.query("SELECT playCount, qualifiedPlayCount, savedCount FROM artifacts WHERE id = 'art_v84'")
+        assert(modernCursor.moveToFirst())
+        assertEquals(999L, modernCursor.getLong(modernCursor.getColumnIndexOrThrow("playCount")))
+        assertEquals(50L, modernCursor.getLong(modernCursor.getColumnIndexOrThrow("qualifiedPlayCount")))
+        assertEquals(18L, modernCursor.getLong(modernCursor.getColumnIndexOrThrow("savedCount")))
+        modernCursor.close()
+        db.close()
+
+        // 6. Migrated database opens successfully through current Room database configuration
+        val roomDb = Room.databaseBuilder(
+            InstrumentationRegistry.getInstrumentation().targetContext,
+            AppDatabase::class.java,
+            TEST_DB
+        )
+            .addMigrations(*DatabaseMigrations.ALL_MIGRATIONS)
+            .allowMainThreadQueries()
+            .build()
+
+        try {
+            runBlocking {
+                val legacyEntity = roomDb.artifactDao().getArtifactById("art_v83")
+                assertNotNull(legacyEntity)
+                assertEquals(150L, legacyEntity?.playCount)
+                assertEquals(42L, legacyEntity?.qualifiedPlayCount)
+                assertEquals(12L, legacyEntity?.reactionCount)
+                assertEquals(7L, legacyEntity?.commentCount)
+                assertEquals(0L, legacyEntity?.savedCount)
+
+                val modernEntity = roomDb.artifactDao().getArtifactById("art_v84")
+                assertNotNull(modernEntity)
+                assertEquals(999L, modernEntity?.playCount)
+                assertEquals(50L, modernEntity?.qualifiedPlayCount)
+                assertEquals(18L, modernEntity?.savedCount)
+            }
+        } finally {
+            roomDb.close()
+        }
     }
 }
 

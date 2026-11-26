@@ -18,6 +18,7 @@ import { resolveStorageBucket } from "./util/storage";
 import { processNotificationDelivery, recoverExpiredNotificationLeases } from "./notification_delivery";
 import { resolveAvatarConfiguration } from "./util/validation/avatar";
 import { aggregatePlayEventTx } from "./play_aggregation";
+import { aggregateSavedArtifactTx } from "./saved_aggregation";
 import { runPlayReconciliationScanner } from "./play_reconciliation_scanner";
 export { resolveStorageBucket, runPlayReconciliationScanner };
 
@@ -2986,6 +2987,25 @@ export const onPlayCreated = functions
 
     logger.info(`[ON_PLAY_CREATED] Outcome=${outcome.status} | PlayID=${playId}`, { outcome });
     return null;
+  });
+
+/**
+ * Authoritatively handles saved artifact count aggregation.
+ * Triggered by client saving, updating shelf, or unsaving an artifact in users/{uid}/savedArtifacts/{artifactId}.
+ * Maintains artifacts/{artifactId}.savedCount aggregate and saved_relationship_states ledger.
+ * Configured with failurePolicy: true, memory: "256MB", timeoutSeconds: 60.
+ */
+export const onSavedArtifactWritten = functions
+  .runWith({
+    failurePolicy: true,
+    memory: "256MB",
+    timeoutSeconds: 60,
+  })
+  .firestore
+  .document("users/{uid}/savedArtifacts/{artifactId}")
+  .onWrite(async (change, context) => {
+    const db = admin.firestore();
+    return await aggregateSavedArtifactTx(db, change, context);
   });
 
 /**

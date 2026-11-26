@@ -17,6 +17,8 @@ import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runCurrent
 import com.google.firebase.firestore.FirebaseFirestoreException
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -772,6 +774,133 @@ class GetPlayerContextUseCaseTest {
         val last = emissions.last()
         assertEquals(draftId, last.artifactId)
         assertEquals(0L, last.qualifiedPlayCount)
+
+        job.cancel()
+    }
+
+    @Test
+    fun `should propagate savedCount from authoritative artifact to PlayerMetadata`() = runTest {
+        val artifactId = "art_saved_meta"
+        val artifact = Artifact(
+            id = artifactId,
+            status = ArtifactStatus.ACTIVE,
+            audioUrl = "https://example.com/audio.mp3",
+            savedCount = 18L
+        )
+        every { artifactRepository.observeArtifact(artifactId) } returns flowOf(artifact)
+
+        val emissions = mutableListOf<PlayerMetadata>()
+        val job = useCase.execute(MutableStateFlow(artifact)).onEach { emissions.add(it) }.launchIn(this)
+        runCurrent()
+
+        val last = emissions.last()
+        assertEquals(18L, last.savedCount)
+
+        job.cancel()
+    }
+
+    @Test
+    fun `should update savedCount dynamically when remote artifact updates arrive`() = runTest {
+        val artifactId = "art_saved_live"
+        val initialArtifact = Artifact(
+            id = artifactId,
+            status = ArtifactStatus.ACTIVE,
+            audioUrl = "https://example.com/audio.mp3",
+            savedCount = 5L
+        )
+        val liveSnapshotFlow = MutableStateFlow<Artifact?>(initialArtifact)
+        every { artifactRepository.observeArtifact(artifactId) } returns liveSnapshotFlow
+
+        val emissions = mutableListOf<PlayerMetadata>()
+        val job = useCase.execute(MutableStateFlow(initialArtifact)).onEach { emissions.add(it) }.launchIn(this)
+        runCurrent()
+
+        assertEquals(5L, emissions.last().savedCount)
+
+        // Remote snapshot update arrives (aggregate savedCount incremented from 5 to 6)
+        val updatedArtifact = initialArtifact.copy(savedCount = 6L)
+        liveSnapshotFlow.value = updatedArtifact
+        runCurrent()
+
+        assertEquals(6L, emissions.last().savedCount)
+
+        job.cancel()
+    }
+
+    @Test
+    fun `should keep isSaved and savedCount independent in PlayerMetadata`() = runTest {
+        val artifactId = "art_saved_indep"
+        val artifact = Artifact(
+            id = artifactId,
+            status = ArtifactStatus.ACTIVE,
+            audioUrl = "https://example.com/audio.mp3",
+            savedCount = 42L
+        )
+        every { artifactRepository.observeArtifact(artifactId) } returns flowOf(artifact)
+        val savedIdsFlow = MutableStateFlow<Set<String>>(emptySet())
+        every { savedArtifactManager.savedIds } returns savedIdsFlow
+
+        val emissions = mutableListOf<PlayerMetadata>()
+        val job = useCase.execute(MutableStateFlow(artifact)).onEach { emissions.add(it) }.launchIn(this)
+        runCurrent()
+
+        val last = emissions.last()
+        assertEquals(42L, last.savedCount)
+        assertFalse(last.isSaved)
+
+        // Now listener personally saves artifact
+        savedIdsFlow.value = setOf(artifactId)
+        runCurrent()
+
+        val updatedLast = emissions.last()
+        assertEquals(42L, updatedLast.savedCount) // savedCount remains 42, no optimistic client increment
+        assertTrue(updatedLast.isSaved)
+
+        job.cancel()
+    }
+
+    @Test
+    fun `should set savedCount to 0 for drafts`() = runTest {
+        val draftId = "draft_saved_test"
+        val draft = Artifact(id = draftId, status = ArtifactStatus.DRAFT, isDraftField = true)
+        every { draftRepository.observeDraftAsArtifact(draftId) } returns flowOf(draft)
+
+        val emissions = mutableListOf<PlayerMetadata>()
+        val job = useCase.execute(MutableStateFlow(draft)).onEach { emissions.add(it) }.launchIn(this)
+        runCurrent()
+
+        val last = emissions.last()
+        assertEquals(draftId, last.artifactId)
+        assertEquals(0L, last.savedCount)
+
+        job.cancel()
+    }
+
+    @Test
+    fun `transient fallback artifact with empty audioUrl should not overwrite authoritative persisted savedCount`() = runTest {
+        val artifactId = "art_fallback_test"
+        val authoritativeArtifact = Artifact(
+            id = artifactId,
+            status = ArtifactStatus.ACTIVE,
+            audioUrl = "https://example.com/authoritative.mp3",
+            savedCount = 29L
+        )
+        val transientPlaceholder = Artifact(
+            id = artifactId,
+            status = ArtifactStatus.ACTIVE,
+            audioUrl = "", // empty indicates transient fallback placeholder
+            savedCount = 0L
+        )
+
+        // Remote/local update emits transient placeholder with default 0L savedCount
+        every { artifactRepository.observeArtifact(artifactId) } returns flowOf(transientPlaceholder)
+
+        val emissions = mutableListOf<PlayerMetadata>()
+        val job = useCase.execute(MutableStateFlow(authoritativeArtifact)).onEach { emissions.add(it) }.launchIn(this)
+        runCurrent()
+
+        val last = emissions.last()
+        assertEquals(29L, last.savedCount)
 
         job.cancel()
     }

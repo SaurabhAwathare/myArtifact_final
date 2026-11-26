@@ -79,7 +79,7 @@ class GetPlayerContextUseCase @Inject constructor(
                 if (updatedArtifact == null) {
                     PlayerMetadata()
                 } else {
-                    PlayerMetadata(artifactId = updatedArtifact.id, qualifiedPlayCount = 0L, commentCount = 0L)
+                    PlayerMetadata(artifactId = updatedArtifact.id, qualifiedPlayCount = 0L, commentCount = 0L, savedCount = 0L)
                 }
             }
     }
@@ -283,6 +283,11 @@ class GetPlayerContextUseCase @Inject constructor(
         ) { params: Array<Any?> ->
             val res = params[0] as ResonanceMetadata
             val updatedArtifact = params[8] as? Artifact
+            val effectiveArtifact = when {
+                updatedArtifact != null && (updatedArtifact.audioUrl.isNotEmpty() || updatedArtifact.savedCount > 0L) -> updatedArtifact
+                artifact.savedCount > 0L -> artifact
+                else -> updatedArtifact ?: artifact
+            }
             PlayerMetadata(
                 artifactId = artifact.id,
                 resonanceCount = res.count,
@@ -295,8 +300,9 @@ class GetPlayerContextUseCase @Inject constructor(
                 followSyncStatus = params[5] as InteractionSyncStatus,
                 isSaved = params[6] as Boolean,
                 saveSyncStatus = params[7] as InteractionSyncStatus,
-                qualifiedPlayCount = updatedArtifact?.qualifiedPlayCount ?: artifact.qualifiedPlayCount,
-                commentCount = updatedArtifact?.commentCount ?: artifact.commentCount
+                qualifiedPlayCount = effectiveArtifact.qualifiedPlayCount,
+                commentCount = effectiveArtifact.commentCount,
+                savedCount = effectiveArtifact.savedCount
             )
         }
     }
@@ -333,5 +339,6 @@ data class PlayerMetadata(
     val isSaved: Boolean = false,
     val saveSyncStatus: InteractionSyncStatus = InteractionSyncStatus.SYNCED,
     val qualifiedPlayCount: Long = 0L,
-    val commentCount: Long = 0L
+    val commentCount: Long = 0L,
+    val savedCount: Long = 0L
 )

@@ -249,6 +249,17 @@ class PlaybackSessionManager @Inject constructor(
             _currentArtifact.value = artifact
             
             if (artifact != null) {
+                if (reason != Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT) {
+                    val currentUid = authRepository.get().currentUser.value?.uid ?: ""
+                    scope.launch {
+                        qualifiedPlaySessionTracker.get().onArtifactSelected(
+                            artifact = artifact,
+                            currentUserId = currentUid,
+                            isExplicitReplay = false
+                        )
+                    }
+                }
+
                 // Lazy load transcript if missing
                 if (artifact.transcript.isEmpty() && !artifact.transcriptUrl.isNullOrEmpty()) {
                     loadTranscriptLazy(artifact)
@@ -351,6 +362,17 @@ class PlaybackSessionManager @Inject constructor(
                 val syncedCurrent = artifactMap[currentMediaItem.mediaId] ?: orderedQueue.find { it.id == currentMediaItem.mediaId }
                 _currentArtifact.value = syncedCurrent
                 _queue.value = orderedQueue
+
+                if (syncedCurrent != null &&
+                    controller.playbackState != Player.STATE_IDLE &&
+                    controller.currentMediaItem?.mediaId == syncedCurrent.id
+                ) {
+                    val currentUid = authRepository.get().currentUser.value?.uid ?: ""
+                    val tracker = qualifiedPlaySessionTracker.get()
+                    tracker.onArtifactSelected(syncedCurrent, currentUid, isExplicitReplay = false)
+                    tracker.onPlaybackStateChanged(controller.playbackState)
+                    tracker.onIsPlayingChanged(controller.isPlaying)
+                }
                 
                 diagnosticLogger.debug(
                     DiagnosticCategory.PLAYER, 
@@ -404,6 +426,7 @@ class PlaybackSessionManager @Inject constructor(
         // Update active state immediately to provide synchronous feedback to state-aware guard logic
         _activePlayback.value = ActivePlayback(artifact.id, playbackType, source)
 
+        currentSyncJob?.cancel()
         currentPlayJob?.cancel()
         currentPlayJob = scope.launch {
             val player = getController() ?: return@launch
@@ -418,7 +441,9 @@ class PlaybackSessionManager @Inject constructor(
                 val isExplicitReplay = (player.playbackState == Player.STATE_ENDED)
                 qualifiedPlaySessionTracker.get().onArtifactSelected(artifact, currentUid, isExplicitReplay)
                 
-                if ((initialPosition > 0) && (kotlin.math.abs(player.currentPosition - initialPosition) > 2000)) {
+                if (isExplicitReplay && initialPosition == 0L) {
+                    player.seekTo(0L)
+                } else if ((initialPosition > 0) && (kotlin.math.abs(player.currentPosition - initialPosition) > 2000)) {
                     player.seekTo(initialPosition)
                 }
                 player.play()
@@ -435,7 +460,6 @@ class PlaybackSessionManager @Inject constructor(
             
             _queue.value = newQueue
             _currentArtifact.value = artifact
-            qualifiedPlaySessionTracker.get().onArtifactSelected(artifact, currentUid, isExplicitReplay = false)
 
             val startIndex = newQueue.indexOfFirst { it.id == artifact.id }.coerceAtLeast(0)
 
@@ -449,7 +473,8 @@ class PlaybackSessionManager @Inject constructor(
             
             val savedSpeed = settingsDataStore.playbackSpeed.first()
             val targetSpeed = if (playbackType == PlaybackType.ARTIFACT) savedSpeed else 1.0f
-            
+
+            qualifiedPlaySessionTracker.get().onArtifactSelected(artifact, currentUid, isExplicitReplay = false)
             player.setMediaItems(mediaItems, startIndex, restoredPosition)
             player.setPlaybackSpeed(targetSpeed)
             _playbackSpeed.value = targetSpeed
@@ -561,14 +586,32 @@ class PlaybackSessionManager @Inject constructor(
     fun togglePlayPause() {
         scope.launch {
             val player = getController() ?: return@launch
-            if (player.isPlaying) player.pause() else player.play()
+            if (player.isPlaying) {
+                player.pause()
+            } else {
+                if (player.playbackState == Player.STATE_ENDED) {
+                    val currentUid = authRepository.get().currentUser.value?.uid ?: ""
+                    val artifact = _currentArtifact.value
+                        ?: player.currentMediaItem?.mediaId?.let { mediaId ->
+                            _queue.value.find { it.id == mediaId }
+                        }
+                    if (artifact != null) {
+                        qualifiedPlaySessionTracker.get().startExplicitReplay(artifact, currentUid)
+                    }
+                    player.seekTo(0L)
+                }
+                player.play()
+            }
         }
     }
 
     fun seekTo(position: Long) {
         scope.launch {
-            qualifiedPlaySessionTracker.get().onSeek()
-            getController()?.seekTo(position)
+            val player = getController() ?: return@launch
+            if (player.playbackState != Player.STATE_IDLE) {
+                qualifiedPlaySessionTracker.get().onSeek()
+            }
+            player.seekTo(position)
             _currentPosition.value = position
             updatePositionSync()
             _seekEvent.emit(position)
@@ -649,9 +692,9 @@ class PlaybackSessionManager @Inject constructor(
     fun release() {
         cleanupSyncJob?.cancel()
         positionUpdateJob?.cancel()
-        scope.launch {
-            qualifiedPlaySessionTracker.get().onPlaybackStopped()
-        }
+        currentPlayJob?.cancel()
+        currentSyncJob?.cancel()
+        transcriptFetchJob?.cancel()
         controller?.removeListener(playerListener)
         controllerFuture?.let { 
             try {
@@ -662,6 +705,15 @@ class PlaybackSessionManager @Inject constructor(
         }
         controller = null
         controllerFuture = null
-        scope.coroutineContext.cancelChildren() // Cancel all pending tasks but keep the scope alive for future use
+        scope.coroutineContext.cancelChildren() // Cancel existing tasks before launching stop cleanup
+        scope.launch {
+            qualifiedPlaySessionTracker.get().onPlaybackStopped()
+        }
+    }
+
+    @androidx.annotation.VisibleForTesting
+    internal fun attachControllerForTest(mediaController: MediaController) {
+        mediaController.addListener(playerListener)
+        controller = mediaController
     }
 }

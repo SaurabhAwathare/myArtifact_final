@@ -155,4 +155,118 @@ class ArtifactRemoteMediatorTest {
         unmockkStatic("androidx.room.RoomDatabaseKt")
         unmockkStatic("kotlinx.coroutines.tasks.TasksKt")
     }
+
+    @Test
+    fun `load persists Firestore qualifiedPlayCount independently from historical playCount`() = runTest {
+        val artifactId = "art_feed_qpc"
+        val query = mockk<com.google.firebase.firestore.Query>(relaxed = true)
+        val snapshot = mockk<com.google.firebase.firestore.QuerySnapshot>(relaxed = true)
+        val doc = mockk<com.google.firebase.firestore.DocumentSnapshot>(relaxed = true)
+
+        every { doc.id } returns artifactId
+        every { doc.getLong("reportCount") } returns 0L
+        every { doc.getLong("safetyConcernCount") } returns 0L
+        every { doc.toObject(com.saurabh.artifact.model.Artifact::class.java) } returns com.saurabh.artifact.model.Artifact(
+            id = artifactId,
+            playCount = 1450L,
+            qualifiedPlayCount = 63L
+        )
+        every { snapshot.documents } returns listOf(doc)
+        every { snapshot.isEmpty } returns false
+
+        every { firestore.collection("artifacts") } returns mockk(relaxed = true) {
+            every { whereEqualTo(any<String>(), any()) } returns this
+            every { orderBy(any<String>(), any()) } returns this
+            every { orderBy(any<com.google.firebase.firestore.FieldPath>(), any()) } returns this
+            every { limit(any()) } returns query
+        }
+
+        mockkStatic("kotlinx.coroutines.tasks.TasksKt")
+        val task = mockk<com.google.android.gms.tasks.Task<com.google.firebase.firestore.QuerySnapshot>>(relaxed = true)
+        every { query.get() } returns task
+        coEvery { task.await() } returns snapshot
+
+        mockkStatic("androidx.room.RoomDatabaseKt")
+        val transactionLambda = slot<suspend () -> Any?>()
+        coEvery { database.withTransaction<Any?>(capture(transactionLambda)) } coAnswers {
+            transactionLambda.captured.invoke()
+        }
+
+        val insertedSlot = slot<List<com.saurabh.artifact.data.local.ArtifactEntity>>()
+        coEvery { artifactDao.insertAll(capture(insertedSlot)) } just Runs
+
+        val pagingState = PagingState<Int, com.saurabh.artifact.data.local.ArtifactEntity>(
+            pages = emptyList(),
+            anchorPosition = null,
+            config = PagingConfig(pageSize = 20),
+            leadingPlaceholderCount = 0
+        )
+
+        val result = mediator.load(LoadType.REFRESH, pagingState)
+
+        assert(result is RemoteMediator.MediatorResult.Success)
+        assertEquals(1, insertedSlot.captured.size)
+        assertEquals(63L, insertedSlot.captured[0].qualifiedPlayCount)
+        assertEquals(1450L, insertedSlot.captured[0].playCount)
+
+        unmockkStatic("androidx.room.RoomDatabaseKt")
+        unmockkStatic("kotlinx.coroutines.tasks.TasksKt")
+    }
+
+    @Test
+    fun `load keeps qualifiedPlayCount at 0 when Firestore artifact only has historical playCount`() = runTest {
+        val artifactId = "art_feed_legacy_only"
+        val query = mockk<com.google.firebase.firestore.Query>(relaxed = true)
+        val snapshot = mockk<com.google.firebase.firestore.QuerySnapshot>(relaxed = true)
+        val doc = mockk<com.google.firebase.firestore.DocumentSnapshot>(relaxed = true)
+
+        every { doc.id } returns artifactId
+        every { doc.getLong("reportCount") } returns 0L
+        every { doc.getLong("safetyConcernCount") } returns 0L
+        every { doc.toObject(com.saurabh.artifact.model.Artifact::class.java) } returns com.saurabh.artifact.model.Artifact(
+            id = artifactId,
+            playCount = 800L,
+            qualifiedPlayCount = 0L
+        )
+        every { snapshot.documents } returns listOf(doc)
+        every { snapshot.isEmpty } returns false
+
+        every { firestore.collection("artifacts") } returns mockk(relaxed = true) {
+            every { whereEqualTo(any<String>(), any()) } returns this
+            every { orderBy(any<String>(), any()) } returns this
+            every { orderBy(any<com.google.firebase.firestore.FieldPath>(), any()) } returns this
+            every { limit(any()) } returns query
+        }
+
+        mockkStatic("kotlinx.coroutines.tasks.TasksKt")
+        val task = mockk<com.google.android.gms.tasks.Task<com.google.firebase.firestore.QuerySnapshot>>(relaxed = true)
+        every { query.get() } returns task
+        coEvery { task.await() } returns snapshot
+
+        mockkStatic("androidx.room.RoomDatabaseKt")
+        val transactionLambda = slot<suspend () -> Any?>()
+        coEvery { database.withTransaction<Any?>(capture(transactionLambda)) } coAnswers {
+            transactionLambda.captured.invoke()
+        }
+
+        val insertedSlot = slot<List<com.saurabh.artifact.data.local.ArtifactEntity>>()
+        coEvery { artifactDao.insertAll(capture(insertedSlot)) } just Runs
+
+        val pagingState = PagingState<Int, com.saurabh.artifact.data.local.ArtifactEntity>(
+            pages = emptyList(),
+            anchorPosition = null,
+            config = PagingConfig(pageSize = 20),
+            leadingPlaceholderCount = 0
+        )
+
+        val result = mediator.load(LoadType.REFRESH, pagingState)
+
+        assert(result is RemoteMediator.MediatorResult.Success)
+        assertEquals(1, insertedSlot.captured.size)
+        assertEquals(0L, insertedSlot.captured[0].qualifiedPlayCount)
+        assertEquals(800L, insertedSlot.captured[0].playCount)
+
+        unmockkStatic("androidx.room.RoomDatabaseKt")
+        unmockkStatic("kotlinx.coroutines.tasks.TasksKt")
+    }
 }

@@ -60,8 +60,14 @@
     <string name="cd_notification_type_resonance">Resonance notification</string>
     <string name="cd_notification_type_follow">Follow notification</string>
     <string name="cd_notification_type_system">System notification</string>
+    <string name="cd_notification_type_saved">Saved notification</string>
     <string name="cd_notification_unread">Unread notification</string>
     <string name="cd_notification_read">Read notification</string>
+    <string name="notification_saved_title">Saved</string>
+    <string name="notification_saved_single">Someone saved your Artifact.</string>
+    <string name="notification_saved_single_with_title">Someone saved \"%s\"</string>
+    <string name="notification_saved_multiple">Your Artifact was saved %d times.</string>
+    <string name="notification_saved_multiple_with_title">\"%2$s\" was saved %1$d times.</string>
 
     <!-- Legal -->
     <string name="privacy_policy">Privacy Policy</string>
@@ -130,6 +136,9 @@
     <string name="cd_buffering_playback">Buffering playback</string>
     <string name="cd_more_options">More options</string>
     <string name="cd_record_reflection">Record a voice reflection</string>
+    <string name="action_play">Play</string>
+    <string name="cd_qualified_play_singular">%1$s qualified play</string>
+    <string name="cd_qualified_play_plural">%1$s qualified plays</string>
 
     <!-- Post-Recording Decision Screen (Stage 3.6.3b) -->
     <string name="post_recording_headline">Your recording is saved.</string>

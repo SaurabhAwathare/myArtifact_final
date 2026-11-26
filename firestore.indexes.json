@@ -499,6 +499,20 @@
           "order": "ASCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "saved_relationship_states",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "artifactId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "state",
+          "order": "ASCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": [

@@ -368,6 +368,7 @@ service cloud.firestore {
                data.get('reactionCount', 0) == 0 &&
                data.get('commentCount', 0) == 0 &&
                data.get('reportCount', 0) == 0 &&
+               data.get('savedCount', 0) == 0 &&
                data.get('status', '') in ['ACTIVE', 'PENDING_UPLOAD', 'DRAFT'] &&
                data.get('isDraft', true) == (data.get('status', '') in ['PENDING_UPLOAD', 'DRAFT']);
       }
@@ -406,7 +407,7 @@ service cloud.firestore {
                      // audioUrl is immutable once ACTIVE
                      (resource.data.status != 'ACTIVE' || resource.data.audioUrl == request.resource.data.audioUrl) &&
                      !(request.resource.data.diff(resource.data).affectedKeys()
-                       .hasAny(['userId', 'author', 'reactionCount', 'commentCount', 'playCount', 'qualifiedPlayCount', 'reportCount', 'recommendationState', 'moderation', 'moderationStatus', 'toxicityScore', 'safetyConcernCount', 'reporterIds', 'identityVersion', 'identityPropagationVersion'])));
+                       .hasAny(['userId', 'author', 'reactionCount', 'commentCount', 'playCount', 'qualifiedPlayCount', 'reportCount', 'savedCount', 'recommendationState', 'moderation', 'moderationStatus', 'toxicityScore', 'safetyConcernCount', 'reporterIds', 'identityVersion', 'identityPropagationVersion'])));
 
       // Prevent users from hard-deleting the Artifact document to ensure Cloud Function trigger
       allow delete: if isGlobalAdmin();
@@ -619,6 +620,16 @@ service cloud.firestore {
 
     match /moderation_audit_logs/{id} {
       allow read, write: if false; // Internal Audit Only (Cloud Functions)
+    }
+
+    // --- SAVED RELATIONSHIP LEDGER ---
+    match /saved_relationship_states/{id} {
+      allow read, write: if false; // Internal Ledger Only (Cloud Functions)
+    }
+
+    // --- SAVED NOTIFICATION GROUPS ---
+    match /saved_notification_groups/{groupId} {
+      allow read, write: if false; // Internal Backend Grouping Only (Cloud Functions)
     }
   }
 }

@@ -24,6 +24,7 @@ data class PlayerUiState(
     // Qualified Play Count (Phase 2.15C.4)
     val qualifiedPlayCount: Long = 0L,
     val commentCount: Long = 0L,
+    val savedCount: Long = 0L,
 
     // Interaction State
     val isResonated: Boolean = false,

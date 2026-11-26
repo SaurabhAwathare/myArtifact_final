@@ -647,5 +647,142 @@ class ArtifactRepositoryTest {
         assertEquals(emptyMap<String, ArtifactStats>(), result)
         verify { diagnosticLogger.error(DiagnosticCategory.FIRESTORE, "STATS_FETCH_FAILED", mapOf("count" to 1), any()) }
     }
+
+    @Test
+    fun `mapArtifactToEntity preserves qualifiedPlayCount independently from historical playCount`() {
+        val artifact = Artifact(
+            id = "art_qpc_to_entity",
+            userId = "user_1",
+            title = "Qualified Play Mapping",
+            playCount = 1200L,
+            qualifiedPlayCount = 47L,
+            reactionCount = 15L,
+            commentCount = 6L,
+            createdAt = Timestamp(java.util.Date(1700000000000L))
+        )
+
+        val entity = repository.mapArtifactToEntity(artifact)
+
+        assertEquals(47L, entity.qualifiedPlayCount)
+        assertEquals(1200L, entity.playCount)
+        assertEquals(15L, entity.reactionCount)
+        assertEquals(6L, entity.commentCount)
+    }
+
+    @Test
+    fun `mapArtifactEntityToArtifact preserves qualifiedPlayCount independently from historical playCount`() {
+        val entity = ArtifactEntity(
+            id = "art_qpc_from_entity",
+            userId = "user_1",
+            authorAnonymousId = "anon_1",
+            authorName = "Author 1",
+            authorSigil = "sigil",
+            authorSigilSeed = "seed",
+            authorSigilColor = "#112233",
+            authorSigilConfigJson = "{}",
+            audioUrl = "https://example.com/audio.m4a",
+            createdAt = 1700000000000L,
+            durationMs = 15000L,
+            title = "Cached Artifact",
+            description = "Desc",
+            emotion = Emotion.CALM,
+            emotionTag = "Calm",
+            playCount = 850L,
+            qualifiedPlayCount = 31L,
+            reactionCount = 10L,
+            commentCount = 4L,
+            amplitudeData = emptyList()
+        )
+
+        val artifact = repository.mapArtifactEntityToArtifact(entity)
+
+        assertEquals(31L, artifact.qualifiedPlayCount)
+        assertEquals(850L, artifact.playCount)
+    }
+
+    @Test
+    fun `Artifact round trip mapping preserves zero qualifiedPlayCount without substituting playCount`() {
+        val legacyArtifact = Artifact(
+            id = "art_qpc_legacy",
+            userId = "user_1",
+            title = "Legacy Play Count Only",
+            playCount = 5000L,
+            qualifiedPlayCount = 0L,
+            createdAt = Timestamp(java.util.Date(1700000000000L))
+        )
+
+        val entity = repository.mapArtifactToEntity(legacyArtifact)
+        val restored = repository.mapArtifactEntityToArtifact(entity)
+
+        assertEquals(0L, entity.qualifiedPlayCount)
+        assertEquals(5000L, entity.playCount)
+        assertEquals(0L, restored.qualifiedPlayCount)
+        assertEquals(5000L, restored.playCount)
+    }
+
+    @Test
+    fun `mapArtifactEntityToArtifact preserves savedCount independently from other counts`() {
+        val entity = ArtifactEntity(
+            id = "art_saved_from_entity",
+            userId = "user_1",
+            authorAnonymousId = "anon_1",
+            authorName = "Author 1",
+            authorSigil = "sigil",
+            authorSigilSeed = "seed",
+            authorSigilColor = "#112233",
+            authorSigilConfigJson = "{}",
+            audioUrl = "https://example.com/audio.m4a",
+            createdAt = 1700000000000L,
+            durationMs = 15000L,
+            title = "Cached Artifact",
+            description = "Desc",
+            emotion = Emotion.CALM,
+            emotionTag = "Calm",
+            playCount = 850L,
+            qualifiedPlayCount = 31L,
+            reactionCount = 10L,
+            commentCount = 4L,
+            savedCount = 19L,
+            amplitudeData = emptyList()
+        )
+
+        val artifact = repository.mapArtifactEntityToArtifact(entity)
+
+        assertEquals(19L, artifact.savedCount)
+        assertEquals(31L, artifact.qualifiedPlayCount)
+        assertEquals(850L, artifact.playCount)
+        assertEquals(10L, artifact.reactionCount)
+        assertEquals(4L, artifact.commentCount)
+    }
+
+    @Test
+    fun `Artifact round trip mapping preserves savedCount independently from playCount, reactionCount, and commentCount`() {
+        val artifactWithSavedCount = Artifact(
+            id = "art_saved_trip",
+            userId = "user_1",
+            title = "Saved Count Test",
+            playCount = 1200L,
+            qualifiedPlayCount = 450L,
+            reactionCount = 88L,
+            commentCount = 15L,
+            savedCount = 42L,
+            createdAt = Timestamp(java.util.Date(1700000000000L))
+        )
+
+        val entity = repository.mapArtifactToEntity(artifactWithSavedCount)
+        val restored = repository.mapArtifactEntityToArtifact(entity)
+
+        assertEquals(42L, entity.savedCount)
+        assertEquals(1200L, entity.playCount)
+        assertEquals(450L, entity.qualifiedPlayCount)
+        assertEquals(88L, entity.reactionCount)
+        assertEquals(15L, entity.commentCount)
+
+        assertEquals(42L, restored.savedCount)
+        assertEquals(1200L, restored.playCount)
+        assertEquals(450L, restored.qualifiedPlayCount)
+        assertEquals(88L, restored.reactionCount)
+        assertEquals(15L, restored.commentCount)
+    }
 }
 

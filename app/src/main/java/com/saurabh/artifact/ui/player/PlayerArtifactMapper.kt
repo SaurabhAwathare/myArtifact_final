@@ -22,6 +22,7 @@ fun Artifact.toPlayerArtifact(): PlayerArtifact {
         isDraft = isDraft,
         episodeNumber = episodeNumber,
         qualifiedPlayCount = qualifiedPlayCount,
-        commentCount = commentCount
+        commentCount = commentCount,
+        savedCount = savedCount
     )
 }

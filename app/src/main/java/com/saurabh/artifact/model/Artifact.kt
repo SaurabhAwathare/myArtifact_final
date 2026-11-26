@@ -45,6 +45,7 @@ data class Artifact(
     val playCount: Long = 0,
     val qualifiedPlayCount: Long = 0,
     val reactionCount: Long = 0,
+    val savedCount: Long = 0L,
     val moderationStatus: String = "CLEAN",
     val toxicityScore: Float = 0f,
     val reportCount: Long = 0,
@@ -205,7 +206,8 @@ enum class NotificationType {
     RESONANCE,    // General reaction
     @Suppress("unused") SYSTEM,       // Upload/Admin
     COMMENT,          // New comment on artifact
-    FOLLOW            // Someone started following you
+    FOLLOW,           // Someone started following you
+    SAVED             // Grouped saved notification
 }
 
 data class NotificationItem(
@@ -220,4 +222,5 @@ data class NotificationItem(
     @get:PropertyName("isRead")
     @set:PropertyName("isRead")
     var isRead: Boolean = false,
+    var count: Int = 1,
 )

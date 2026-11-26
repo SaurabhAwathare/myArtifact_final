@@ -38,10 +38,12 @@ import com.saurabh.artifact.ui.theme.GoldAura400
 import com.saurabh.artifact.ui.util.FeedbackUtils
 
 /**
- * PlayerInteractionBar - A cinematic, emotionally intentional row of 5 standardized actions.
+ * PlayerInteractionBar - A cinematic, emotionally intentional row of 4 standardized actions (UIUX-CHANGE-01).
+ * Relocates Following to the Creator header and retains: Play, Resonate, Save, Comment.
  * Features icon-attached numerical badges, unified single-line labels, guaranteed touch targets (>=48dp),
- * and balanced spacing across the available viewport width (Phase 2.18 / Phase 2.18.2B).
+ * and balanced spacing across the available viewport width (Phase 2.18 / Phase 2.18.2B / UIUX-CHANGE-01).
  */
+@Suppress("UNUSED_PARAMETER")
 @Composable
 fun PlayerInteractionBar(
     isResonated: Boolean,
@@ -51,22 +53,23 @@ fun PlayerInteractionBar(
     resonanceCount: Int,
     canShowResonators: Boolean,
     onResonatorsCountClick: () -> Unit,
-    isResonating: Boolean,
-    followSyncStatus: InteractionSyncStatus,
-    onResonateConnectionClick: () -> Unit,
     isSaved: Boolean,
     saveSyncStatus: InteractionSyncStatus,
     onSaveClick: () -> Unit,
     onCommentClick: () -> Unit,
     modifier: Modifier = Modifier,
+    isResonating: Boolean = false,
+    followSyncStatus: InteractionSyncStatus = InteractionSyncStatus.SYNCED,
+    onResonateConnectionClick: () -> Unit = {},
     isOwner: Boolean = false,
-    showResonance: Boolean = true,
+    showResonance: Boolean = false,
     showSave: Boolean = true,
     isCommentEnabled: Boolean = true,
     commentDisabledReason: String? = null,
     qualifiedPlayCount: Long = 0L,
     showQualifiedPlayCount: Boolean = true,
-    commentCount: Long = 0L
+    commentCount: Long = 0L,
+    savedCount: Long = 0L
 ) {
     Column(modifier = modifier) {
         Row(
@@ -78,7 +81,7 @@ fun PlayerInteractionBar(
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 1. Qualified listening count (Listens)
+            // 1. Qualified play count (Play)
             if (showQualifiedPlayCount) {
                 QualifiedPlayCountToolbarItem(count = qualifiedPlayCount)
             }
@@ -94,36 +97,45 @@ fun PlayerInteractionBar(
                 isOwner = isOwner
             )
 
-            // 3. Following (clearly distinguishable HowToReg active glyph vs PersonAdd inactive glyph)
-            if (showResonance) {
-                InteractionItem(
-                    icon = if (isResonating) Icons.Rounded.HowToReg else Icons.Rounded.PersonAdd,
-                    label = if (isResonating) "Following" else "Follow",
-                    onClick = onResonateConnectionClick,
-                    isActive = isResonating,
-                    syncStatus = followSyncStatus,
-                    activeColor = GoldAura400
-                )
-            }
-
-            // 4. Save (aligned with SavedArtifactManager persistence)
+            // 3. Save (aligned with SavedArtifactManager persistence and aggregate savedCount)
             if (showSave) {
+                val saveLabel = if (isOwner) "Save" else if (isSaved) "Saved" else "Save"
+                val saveIcon = if (isOwner) {
+                    Icons.Rounded.BookmarkBorder
+                } else if (isSaved) {
+                    Icons.Rounded.Bookmark
+                } else {
+                    Icons.Rounded.BookmarkBorder
+                }
+                val saveEnabled = !isOwner
+                val saveDisabledReason = if (isOwner) "You cannot save your own reflection." else null
+                val saveBadgeCount = if (savedCount > 0L) savedCount else null
+                val saveBadgeDesc = if (savedCount > 0L) {
+                    "$savedCount ${if (savedCount == 1L) "save" else "saves"}"
+                } else null
+
                 InteractionItem(
-                    icon = if (isSaved) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
-                    label = if (isSaved) "Saved" else "Save",
+                    icon = saveIcon,
+                    label = saveLabel,
                     onClick = onSaveClick,
-                    isActive = isSaved,
-                    syncStatus = saveSyncStatus,
+                    badgeCount = saveBadgeCount,
+                    badgeContentDescription = saveBadgeDesc,
+                    badgeProminent = false,
+                    isActive = if (isOwner) false else isSaved,
+                    syncStatus = if (isOwner) InteractionSyncStatus.SYNCED else saveSyncStatus,
+                    enabled = saveEnabled,
+                    disabledReason = saveDisabledReason,
                     activeColor = GoldAura400
                 )
             }
 
-            // 5. Comment (with commentCount badge and 95% listening gate)
+            // 4. Comment (with commentCount badge and 95% listening gate)
             InteractionItem(
                 icon = if (isCommentEnabled) Icons.Rounded.ChatBubble else Icons.Rounded.ChatBubbleOutline,
                 label = "Comment",
                 onClick = onCommentClick,
                 badgeCount = if (commentCount > 0L) commentCount else null,
+                badgeContentDescription = if (commentCount > 0L) "$commentCount ${if (commentCount == 1L) "comment" else "comments"}" else null,
                 badgeProminent = isCommentEnabled,
                 isActive = isCommentEnabled,
                 enabled = isCommentEnabled,
@@ -232,8 +244,8 @@ fun CountBadge(
 }
 
 /**
- * Authoritative qualified listening count presentation in the bottom interaction toolbar.
- * Displays headphones icon, attached circular red count badge, and single-line "Listens" label.
+ * Authoritative qualified play count presentation in the bottom interaction toolbar.
+ * Displays play icon, attached circular red count badge, and single-line "Play" label.
  */
 @Composable
 fun QualifiedPlayCountToolbarItem(
@@ -243,7 +255,7 @@ fun QualifiedPlayCountToolbarItem(
     val formattedCount = remember(count) {
         java.text.NumberFormat.getIntegerInstance().format(count)
     }
-    val unit = if (count == 1L) "qualified listen" else "qualified listens"
+    val unit = if (count == 1L) "qualified play" else "qualified plays"
     val fullDescription = "$formattedCount $unit"
 
     Column(
@@ -260,7 +272,7 @@ fun QualifiedPlayCountToolbarItem(
             badge = { CountBadge(count = count) }
         ) {
             Icon(
-                imageVector = Icons.Rounded.Headphones,
+                imageVector = Icons.Rounded.PlayArrow,
                 contentDescription = null,
                 tint = Color.White.copy(alpha = 0.55f),
                 modifier = Modifier.size(28.dp)
@@ -270,7 +282,7 @@ fun QualifiedPlayCountToolbarItem(
         Spacer(modifier = Modifier.height(2.dp))
 
         Text(
-            text = "Listens",
+            text = "Play",
             style = MaterialTheme.typography.labelSmall,
             color = Color.White.copy(alpha = 0.55f),
             fontSize = 11.sp,
@@ -397,6 +409,7 @@ private fun InteractionItem(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     badgeCount: Long? = null,
+    badgeContentDescription: String? = null,
     badgeProminent: Boolean = true,
     isActive: Boolean = false,
     syncStatus: InteractionSyncStatus = InteractionSyncStatus.SYNCED,
@@ -447,7 +460,7 @@ private fun InteractionItem(
                 {
                     CountBadge(
                         count = badgeCount,
-                        contentDescription = "$badgeCount comments",
+                        contentDescription = badgeContentDescription ?: "$badgeCount comments",
                         isProminent = badgeProminent
                     )
                 }

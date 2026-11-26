@@ -2,6 +2,7 @@ package com.saurabh.artifact.ui.util
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Favorite
@@ -34,6 +35,7 @@ object NotificationMapper {
         val key = parts[0]
 
         val effectiveType = when {
+            notification.type == NotificationType.SAVED || key == "SAVED" -> NotificationType.SAVED
             notification.type == NotificationType.COMMENT || key == "COMMENT" -> NotificationType.COMMENT
             notification.type == NotificationType.FOLLOW || key == "PRESENCE_RESONATED" -> NotificationType.FOLLOW
             notification.type == NotificationType.RESONANCE || key == "RESONANCE" -> NotificationType.RESONANCE
@@ -41,6 +43,35 @@ object NotificationMapper {
         }
 
         return when (effectiveType) {
+            NotificationType.SAVED -> {
+                val countFromParts = parts.getOrNull(1)?.toIntOrNull()
+                val count = notification.count.takeIf { it > 0 } ?: countFromParts ?: 1
+                val artifactTitle = parts.getOrNull(2)?.takeIf { it.isNotBlank() }
+
+                val title = UiText.StringResource(R.string.notification_saved_title)
+                val subtitle = when {
+                    count <= 1 && artifactTitle != null -> {
+                        UiText.StringResource(R.string.notification_saved_single_with_title, artifactTitle)
+                    }
+                    count <= 1 -> {
+                        UiText.StringResource(R.string.notification_saved_single)
+                    }
+                    artifactTitle != null -> {
+                        UiText.StringResource(R.string.notification_saved_multiple_with_title, count, artifactTitle)
+                    }
+                    else -> {
+                        UiText.StringResource(R.string.notification_saved_multiple, count)
+                    }
+                }
+                NotificationPresentation(
+                    title = title,
+                    subtitle = subtitle,
+                    type = NotificationType.SAVED,
+                    eventIcon = Icons.Rounded.Bookmark,
+                    eventDescription = "Saved",
+                    contextArtifactTitle = artifactTitle
+                )
+            }
             NotificationType.COMMENT -> {
                 val artifactTitle = parts.getOrNull(1)?.takeIf { it.isNotBlank() }
                 val title = if (!actorName.isNullOrBlank()) {
@@ -195,6 +226,25 @@ object NotificationMapper {
                     UiText.StringResource(R.string.notification_comment_received_with_actor, actorName, title)
                 } else {
                     UiText.StringResource(R.string.notification_comment_received, title)
+                }
+            }
+            "SAVED" -> {
+                val countFromParts = parts.getOrNull(1)?.toIntOrNull()
+                val count = notification.count.takeIf { it > 0 } ?: countFromParts ?: 1
+                val artifactTitle = parts.getOrNull(2)?.takeIf { it.isNotBlank() }
+                when {
+                    count <= 1 && artifactTitle != null -> {
+                        UiText.StringResource(R.string.notification_saved_single_with_title, artifactTitle)
+                    }
+                    count <= 1 -> {
+                        UiText.StringResource(R.string.notification_saved_single)
+                    }
+                    artifactTitle != null -> {
+                        UiText.StringResource(R.string.notification_saved_multiple_with_title, count, artifactTitle)
+                    }
+                    else -> {
+                        UiText.StringResource(R.string.notification_saved_multiple, count)
+                    }
                 }
             }
             else -> UiText.DynamicString(notification.message)

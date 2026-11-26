@@ -32,10 +32,13 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.retryWhen
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -82,8 +85,11 @@ class PlayerViewModel @Inject constructor(
     // Consolidated metadata from UseCase - Live and Atomic
     private val metadata: StateFlow<PlayerMetadata> = getPlayerContextUseCase.execute(
         artifactFlow = playbackCoordinator.currentArtifact
-    ).catch { e ->
-        reportError(e.message ?: "Metadata synchronization error", DiagnosticCategory.PLAYER)
+    ).retryWhen { cause, _ ->
+        reportError(cause.message ?: "Metadata synchronization error", DiagnosticCategory.PLAYER, cause)
+        playbackCoordinator.currentArtifact.drop(1).map { true }.firstOrNull() ?: false
+    }.catch { e ->
+        reportError(e.message ?: "Metadata synchronization error", DiagnosticCategory.PLAYER, e)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), PlayerMetadata())
 
     init {
@@ -239,9 +245,21 @@ class PlayerViewModel @Inject constructor(
         }
 
         val internalOwnerId = playerArtifact?.author?.anonymousId ?: artifact?.author?.anonymousId ?: ""
+        val effectiveSavedCount = when {
+            isMetadataSynced && md.savedCount > 0L -> md.savedCount
+            artifact != null && artifact.savedCount > 0L -> artifact.savedCount
+            isMetadataSynced -> md.savedCount
+            else -> artifact?.savedCount ?: 0L
+        }
+
+        val syncedPlayerArtifact = playerArtifact?.copy(
+            qualifiedPlayCount = if (isMetadataSynced) md.qualifiedPlayCount else (artifact?.qualifiedPlayCount ?: 0L),
+            commentCount = if (isMetadataSynced) md.commentCount else (artifact?.commentCount ?: 0L),
+            savedCount = effectiveSavedCount
+        )
 
         PlayerStaticState(
-            artifact = playerArtifact,
+            artifact = syncedPlayerArtifact,
             internalOwnerId = internalOwnerId,
             isOwner = isOwner,
             isDraft = artifact?.isDraft == true,
@@ -258,6 +276,7 @@ class PlayerViewModel @Inject constructor(
             canShowResonators = if (isMetadataSynced) md.canShowResonators else false,
             qualifiedPlayCount = if (isMetadataSynced) md.qualifiedPlayCount else (artifact?.qualifiedPlayCount ?: 0L),
             commentCount = if (isMetadataSynced) md.commentCount else (artifact?.commentCount ?: 0L),
+            savedCount = effectiveSavedCount,
             playerMode = mode,
             isExpanded = expanded,
             showAdvancedControls = advanced
@@ -342,6 +361,7 @@ class PlayerViewModel @Inject constructor(
             playerMode = effectivePlayerMode,
             qualifiedPlayCount = static.qualifiedPlayCount,
             commentCount = static.commentCount,
+            savedCount = static.savedCount,
             isResonated = static.isResonated,
             resonanceSyncStatus = static.resonanceSyncStatus,
             selectedReactionType = static.selectedReactionType,
@@ -498,11 +518,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun toggleSave() {
-        // REFACTOR: We need the original Artifact for toggleSave as it's passed to SavedArtifactManager
-        // But the UseCase can be refactored to take ID. For now, we fetch from coordinator if needed
-        // or rely on the fact that toggleSave in UseCase takes Artifact.
-        // Actually, PlayerInteractionUseCase.toggleSave(Artifact) is called.
-        // We'll use a safer approach: get the artifact from the coordinator.
+        if (uiState.value.isOwner) return
         val artifact = playbackCoordinator.currentArtifact.value ?: return
 
         viewModelScope.launch {
@@ -755,6 +771,7 @@ private data class PlayerStaticState(
     val canShowResonators: Boolean = false,
     val qualifiedPlayCount: Long = 0L,
     val commentCount: Long = 0L,
+    val savedCount: Long = 0L,
     val playerMode: PlayerMode = PlayerMode.HIDDEN,
     val isExpanded: Boolean = false,
     val showAdvancedControls: Boolean = false

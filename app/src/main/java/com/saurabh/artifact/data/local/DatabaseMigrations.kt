@@ -340,6 +340,29 @@ object DatabaseMigrations {
         }
     }
 
+    /**
+     * Migration 82 -> 83: Qualified Play Count Persistence in Artifacts Cache.
+     * Adds 'qualifiedPlayCount' column to 'artifacts' table with default 0 so
+     * authoritative Firestore qualifiedPlayCount survives Room caching and feed pagination.
+     */
+    val MIGRATION_82_83 = object : Migration(82, 83) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE artifacts ADD COLUMN qualifiedPlayCount INTEGER NOT NULL DEFAULT 0")
+        }
+    }
+
+    /**
+     * Migration 83 -> 84: Saved Listener Count Persistence in Artifacts Cache.
+     * Adds 'savedCount' column to 'artifacts' table with default 0 so
+     * authoritative Firestore savedCount survives Room caching and feed pagination.
+     * Preserves all existing artifact rows, indexes, and constraints.
+     */
+    val MIGRATION_83_84 = object : Migration(83, 84) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE artifacts ADD COLUMN savedCount INTEGER NOT NULL DEFAULT 0")
+        }
+    }
+
     val ALL_MIGRATIONS = arrayOf<Migration>(
         MIGRATION_60_61,
         MIGRATION_61_62,
@@ -355,6 +378,8 @@ object DatabaseMigrations {
         MIGRATION_78_79,
         MIGRATION_79_80,
         MIGRATION_80_81,
-        MIGRATION_81_82
+        MIGRATION_81_82,
+        MIGRATION_82_83,
+        MIGRATION_83_84
     )
 }

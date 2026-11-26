@@ -129,6 +129,36 @@ class PlayerViewModelTest {
     }
 
     @Test
+    fun `toggleSave should not call playerInteractionUseCase when user is owner`() = runTest {
+        // Current user is "user123", artifact owner is "user123" -> isOwner is true
+        val artifact = Artifact(id = "art_owner", userId = "user123")
+        val currentArtifactFlow = MutableStateFlow<Artifact?>(artifact)
+        val metadataFlow = MutableStateFlow(PlayerMetadata(artifactId = "art_owner"))
+        
+        every { playbackCoordinator.currentArtifact } returns currentArtifactFlow
+        every { getPlayerContextUseCase.execute(any()) } returns metadataFlow
+        
+        val ownerViewModel = PlayerViewModel(
+            savedStateHandle, playbackCoordinator, authRepository, { reactionUseCase }, 
+            { playerInteractionUseCase }, getPlayerContextUseCase, { playableArtifactRepository }, 
+            reviewSessionManager, { deleteArtifactUseCase },
+            publishingPolicy, diagnosticLogger
+        )
+        
+        backgroundScope.launch {
+            ownerViewModel.uiState.collect {}
+        }
+        
+        advanceUntilIdle()
+        advanceTimeBy(6000)
+        
+        ownerViewModel.toggleSave()
+        advanceUntilIdle()
+        
+        verify(exactly = 0) { playerInteractionUseCase.toggleSave(any()) }
+    }
+
+    @Test
     fun `playArtifactById should emit user friendly error on NotFound`() = runTest {
         val artifactId = "missing_id"
         val error = com.saurabh.artifact.model.AppError.NotFound("Artifact", artifactId)
@@ -538,5 +568,100 @@ class PlayerViewModelTest {
         advanceTimeBy(6000)
 
         Assert.assertEquals(0L, vm.uiState.value.qualifiedPlayCount)
+    }
+
+    @Test
+    fun `metadata observation recovers on next artifact after single artifact failure`() = runTest {
+        val badArtifact = Artifact(id = "art_bad", userId = "owner1", qualifiedPlayCount = 0L)
+        val goodArtifact = Artifact(id = "art_good", userId = "owner2", qualifiedPlayCount = 4L)
+        val currentArtifactFlow = MutableStateFlow<Artifact?>(badArtifact)
+
+        every { playbackCoordinator.currentArtifact } returns currentArtifactFlow
+        every { getPlayerContextUseCase.execute(any()) } answers {
+            kotlinx.coroutines.flow.flow {
+                val current = currentArtifactFlow.value
+                if (current?.id == "art_bad") {
+                    throw RuntimeException("Simulated PERMISSION_DENIED")
+                } else if (current != null) {
+                    emit(PlayerMetadata(artifactId = current.id, qualifiedPlayCount = current.qualifiedPlayCount))
+                }
+            }
+        }
+
+        val vm = PlayerViewModel(
+            savedStateHandle, playbackCoordinator, authRepository, { reactionUseCase },
+            { playerInteractionUseCase }, getPlayerContextUseCase, { playableArtifactRepository },
+            reviewSessionManager, { deleteArtifactUseCase },
+            publishingPolicy, diagnosticLogger
+        )
+        backgroundScope.launch { vm.uiState.collect {} }
+        advanceUntilIdle()
+        advanceTimeBy(1000)
+
+        // Switch to a valid artifact after the previous metadata flow threw
+        currentArtifactFlow.value = goodArtifact
+        advanceUntilIdle()
+        advanceTimeBy(1000)
+
+        Assert.assertEquals(4L, vm.uiState.value.qualifiedPlayCount)
+    }
+
+    @Test
+    fun `qualifiedPlayCount and 95 percent comment unlock state remain independent`() = runTest {
+        val artifact = Artifact(
+            id = "art_indep",
+            userId = "owner1",
+            status = com.saurabh.artifact.model.ArtifactStatus.ACTIVE,
+            qualifiedPlayCount = 3L
+        )
+        val currentArtifactFlow = MutableStateFlow<Artifact?>(artifact)
+        val metadataFlow = MutableStateFlow(PlayerMetadata(artifactId = "art_indep", qualifiedPlayCount = 3L))
+        val evidence = com.saurabh.artifact.domain.review.EngagementEvidence(
+            artifactId = "art_indep",
+            versionTag = "v1",
+            durationMs = 60_000L
+        )
+        val progressFlow = MutableStateFlow(
+            com.saurabh.artifact.audio.validation.ReviewProgress(
+                artifactId = "art_indep",
+                durationMs = 60_000L,
+                coveragePercent = 0.25f,
+                hasReachedEnd = false,
+                isValidationMet = false,
+                evidence = evidence
+            )
+        )
+
+        every { playbackCoordinator.currentArtifact } returns currentArtifactFlow
+        every { getPlayerContextUseCase.execute(any()) } returns metadataFlow
+        every { playbackCoordinator.currentProgress } returns progressFlow
+
+        val vm = PlayerViewModel(
+            savedStateHandle, playbackCoordinator, authRepository, { reactionUseCase },
+            { playerInteractionUseCase }, getPlayerContextUseCase, { playableArtifactRepository },
+            reviewSessionManager, { deleteArtifactUseCase },
+            publishingPolicy, diagnosticLogger
+        )
+        backgroundScope.launch { vm.uiState.collect {} }
+        advanceUntilIdle()
+        advanceTimeBy(1000)
+
+        // Qualified play count updates at 25% coverage even though 95% comment unlock is not met
+        Assert.assertEquals(3L, vm.uiState.value.qualifiedPlayCount)
+        Assert.assertFalse(vm.uiState.value.isThresholdMet)
+
+        // Comment unlock reaching 95% does not alter authoritative qualifiedPlayCount
+        progressFlow.value = com.saurabh.artifact.audio.validation.ReviewProgress(
+            artifactId = "art_indep",
+            durationMs = 60_000L,
+            coveragePercent = 0.96f,
+            hasReachedEnd = true,
+            isValidationMet = true,
+            evidence = evidence
+        )
+        advanceUntilIdle()
+
+        Assert.assertEquals(3L, vm.uiState.value.qualifiedPlayCount)
+        Assert.assertTrue(vm.uiState.value.isThresholdMet)
     }
 }

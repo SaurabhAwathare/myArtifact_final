@@ -141,7 +141,7 @@ fun NavGraphBuilder.feedNavigation(
                             }
                         }
                     }
-                    NotificationType.COMMENT, NotificationType.RESONANCE -> {
+                    NotificationType.COMMENT, NotificationType.RESONANCE, NotificationType.SAVED -> {
                         if (notification.artifactId.isNotEmpty()) {
                             onPlayArtifactById(notification.artifactId)
                             navController.popBackStack() // Return to feed to see the player

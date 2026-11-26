@@ -223,126 +223,143 @@ fun ImmersivePlayerScreen(
                             )
                         }
                     } else {
-                        Column(
+                        Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 4.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
+                                .padding(vertical = 4.dp)
                         ) {
-                            val avatarDimension = when {
-                                isCompactHeight -> 72.dp
-                                availableHeight < 800.dp -> 88.dp
-                                else -> 100.dp
-                            }
-
-                            // 2.1 Smaller Centered Avatar with subtle halo
-                            Box(
-                                modifier = Modifier.size(avatarDimension + 16.dp),
-                                contentAlignment = Alignment.Center
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth(),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
                             ) {
-                                val emotion = playableArtifact?.emotion ?: artifact?.emotion ?: ""
+                                val avatarDimension = when {
+                                    isCompactHeight -> 72.dp
+                                    availableHeight < 800.dp -> 88.dp
+                                    else -> 100.dp
+                                }
 
-                                EmotionalAudioSurface(
-                                    emotion = emotion,
-                                    isPlaying = uiState.isPlaying,
-                                    modifier = Modifier
-                                        .size(avatarDimension + 16.dp)
-                                        .alpha(0.35f)
-                                )
+                                // 2.1 Smaller Centered Avatar with subtle halo
+                                Box(
+                                    modifier = Modifier.size(avatarDimension + 16.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    val emotion = playableArtifact?.emotion ?: artifact?.emotion ?: ""
 
-                                if (isVerifiedDraft) {
                                     EmotionalAudioSurface(
                                         emotion = emotion,
                                         isPlaying = uiState.isPlaying,
-                                        modifier = Modifier.size(avatarDimension)
+                                        modifier = Modifier
+                                            .size(avatarDimension + 16.dp)
+                                            .alpha(0.35f)
+                                    )
+
+                                    if (isVerifiedDraft) {
+                                        EmotionalAudioSurface(
+                                            emotion = emotion,
+                                            isPlaying = uiState.isPlaying,
+                                            modifier = Modifier.size(avatarDimension)
+                                        )
+                                    } else {
+                                        val avatarConfig = (playableArtifact?.avatarConfig?.takeIf { it != AvatarConfiguration.DEFAULT }
+                                            ?: artifact?.avatarConfig
+                                            ?: playableArtifact?.avatarConfig
+                                            ?: AvatarConfiguration.DEFAULT).withSafeFallbacks()
+
+                                        ArtifactAvatar(
+                                            config = avatarConfig,
+                                            size = avatarDimension,
+                                            contentDescription = "Creator avatar",
+                                            modifier = Modifier.clickable {
+                                                onAuthorClick(uiState.internalOwnerId)
+                                            }
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(if (isCompactHeight) 6.dp else 10.dp))
+
+                                // 2.2 Centered Artifact Title
+                                val rawTitle = playableArtifact?.title ?: artifact?.title
+                                val episodeNum = playableArtifact?.episodeNumber ?: artifact?.episodeNumber
+                                val title = ArtifactTitleFormatter.formatTitle(rawTitle, episodeNum, fallbackTitle = "Artifact")
+
+                                val titleStyle = if (isCompactHeight) {
+                                    MaterialTheme.typography.titleMedium.copy(
+                                        fontWeight = FontWeight.ExtraBold,
+                                        letterSpacing = (-0.3).sp
                                     )
                                 } else {
-                                    val avatarConfig = (playableArtifact?.avatarConfig?.takeIf { it != AvatarConfiguration.DEFAULT }
-                                        ?: artifact?.avatarConfig
-                                        ?: playableArtifact?.avatarConfig
-                                        ?: AvatarConfiguration.DEFAULT).withSafeFallbacks()
+                                    MaterialTheme.typography.titleLarge.copy(
+                                        fontWeight = FontWeight.ExtraBold,
+                                        letterSpacing = (-0.4).sp
+                                    )
+                                }
 
-                                    ArtifactAvatar(
-                                        config = avatarConfig,
-                                        size = avatarDimension,
-                                        contentDescription = "Creator avatar",
-                                        modifier = Modifier.clickable {
-                                            onAuthorClick(uiState.internalOwnerId)
-                                        }
+                                Text(
+                                    text = title,
+                                    style = titleStyle,
+                                    color = Color.White,
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 8.dp)
+                                )
+
+                                Spacer(modifier = Modifier.height(if (isCompactHeight) 2.dp else 4.dp))
+
+                                // 2.3 Centered Anonymous Creator Name
+                                if (isVerifiedDraft) {
+                                    Text(
+                                        text = "Private Draft",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = Color(0xFFFFB74D).copy(alpha = 0.7f),
+                                        fontWeight = FontWeight.Light,
+                                        letterSpacing = 1.sp,
+                                        textAlign = TextAlign.Center
+                                    )
+                                } else {
+                                    val authorName = playableArtifact?.authorName?.ifEmpty { null }
+                                        ?: artifact?.author?.name?.ifEmpty { null }
+                                        ?: ResolvedCreatorIdentity.NEUTRAL_NAME
+
+                                    Text(
+                                        text = authorName,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = Color.White.copy(alpha = 0.7f),
+                                        fontWeight = FontWeight.Bold,
+                                        textAlign = TextAlign.Center,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.clickable { onAuthorClick(uiState.internalOwnerId) }
+                                    )
+                                }
+
+                                // 2.4 Centered Emotion Tags
+                                val emotionsToDisplay = playableArtifact?.effectiveEmotions?.ifEmpty {
+                                    listOfNotNull(playableArtifact.emotion.ifBlank { null })
+                                } ?: artifact?.effectiveEmotions ?: emptyList()
+                                if (emotionsToDisplay.isNotEmpty()) {
+                                    Spacer(modifier = Modifier.height(if (isCompactHeight) 4.dp else 6.dp))
+                                    EmotionTagsGroup(
+                                        emotions = emotionsToDisplay,
+                                        modifier = Modifier.fillMaxWidth()
                                     )
                                 }
                             }
 
-                            Spacer(modifier = Modifier.height(if (isCompactHeight) 6.dp else 10.dp))
-
-                            // 2.2 Centered Artifact Title
-                            val rawTitle = playableArtifact?.title ?: artifact?.title
-                            val episodeNum = playableArtifact?.episodeNumber ?: artifact?.episodeNumber
-                            val title = ArtifactTitleFormatter.formatTitle(rawTitle, episodeNum, fallbackTitle = "Artifact")
-
-                            val titleStyle = if (isCompactHeight) {
-                                MaterialTheme.typography.titleMedium.copy(
-                                    fontWeight = FontWeight.ExtraBold,
-                                    letterSpacing = (-0.3).sp
-                                )
-                            } else {
-                                MaterialTheme.typography.titleLarge.copy(
-                                    fontWeight = FontWeight.ExtraBold,
-                                    letterSpacing = (-0.4).sp
-                                )
-                            }
-
-                            Text(
-                                text = title,
-                                style = titleStyle,
-                                color = Color.White,
-                                textAlign = TextAlign.Center,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 8.dp)
-                            )
-
-                            Spacer(modifier = Modifier.height(if (isCompactHeight) 2.dp else 4.dp))
-
-                            // 2.3 Centered Anonymous Creator Name
-                            if (isVerifiedDraft) {
-                                Text(
-                                    text = "Private Draft",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = Color(0xFFFFB74D).copy(alpha = 0.7f),
-                                    fontWeight = FontWeight.Light,
-                                    letterSpacing = 1.sp,
-                                    textAlign = TextAlign.Center
-                                )
-                            } else {
-                                val authorName = playableArtifact?.authorName?.ifEmpty { null }
-                                    ?: artifact?.author?.name?.ifEmpty { null }
-                                    ?: ResolvedCreatorIdentity.NEUTRAL_NAME
-
-                                Text(
-                                    text = authorName,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = Color.White.copy(alpha = 0.7f),
-                                    fontWeight = FontWeight.Bold,
-                                    textAlign = TextAlign.Center,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.clickable { onAuthorClick(uiState.internalOwnerId) }
-                                )
-                            }
-
-                            // 2.4 Centered Emotion Tags
-                            val emotionsToDisplay = playableArtifact?.effectiveEmotions?.ifEmpty {
-                                listOfNotNull(playableArtifact.emotion.ifBlank { null })
-                            } ?: artifact?.effectiveEmotions ?: emptyList()
-                            if (emotionsToDisplay.isNotEmpty()) {
-                                Spacer(modifier = Modifier.height(if (isCompactHeight) 4.dp else 6.dp))
-                                EmotionTagsGroup(
-                                    emotions = emotionsToDisplay,
-                                    modifier = Modifier.fillMaxWidth()
+                            // 2.5 Relocated Following Control (UIUX-CHANGE-01)
+                            if (!isVerifiedDraft && !uiState.isOwner) {
+                                CreatorFollowButton(
+                                    isFollowing = uiState.isResonating,
+                                    syncStatus = uiState.followSyncStatus,
+                                    onClick = onResonateConnectionClick,
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .padding(top = 2.dp)
                                 )
                             }
                         }
@@ -426,7 +443,7 @@ fun ImmersivePlayerScreen(
                         )
                     }
 
-                    // 5. Interaction Layer (Standardized 5-item toolbar or Draft Actions)
+                    // 5. Interaction Layer (Standardized 4-item toolbar or Draft Actions)
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -451,9 +468,6 @@ fun ImmersivePlayerScreen(
                                 onResonatorsCountClick = {
                                     artifact?.id?.let { id -> onResonatorsCountClick(id) }
                                 },
-                                isResonating = uiState.isResonating,
-                                followSyncStatus = uiState.followSyncStatus,
-                                onResonateConnectionClick = onResonateConnectionClick,
                                 isSaved = uiState.isSaved,
                                 saveSyncStatus = uiState.saveSyncStatus,
                                 onSaveClick = onSaveClick,
@@ -461,11 +475,11 @@ fun ImmersivePlayerScreen(
                                 isCommentEnabled = uiState.isThresholdMet,
                                 commentDisabledReason = if (!uiState.isThresholdMet) "Listen to at least 95% of this Artifact before joining the conversation." else null,
                                 isOwner = uiState.isOwner,
-                                showResonance = !uiState.isOwner,
-                                showSave = !uiState.isOwner,
+                                showSave = true,
                                 qualifiedPlayCount = uiState.qualifiedPlayCount,
                                 showQualifiedPlayCount = !isVerifiedDraft && artifact != null && uiState.loadState != PlayerLoadState.LOADING,
-                                commentCount = uiState.commentCount
+                                commentCount = uiState.commentCount,
+                                savedCount = uiState.savedCount
                             )
                         }
                     }
@@ -696,7 +710,7 @@ fun QualifiedPlayCountDisplay(
     val formattedCount = remember(count) {
         java.text.NumberFormat.getIntegerInstance().format(count)
     }
-    val label = if (count == 1L) "qualified listen" else "qualified listens"
+    val label = if (count == 1L) "qualified play" else "qualified plays"
     val fullText = "$formattedCount $label"
 
     Row(
@@ -707,7 +721,7 @@ fun QualifiedPlayCountDisplay(
             }
     ) {
         Icon(
-            imageVector = Icons.Rounded.Headphones,
+            imageVector = Icons.Rounded.PlayArrow,
             contentDescription = null,
             tint = Color.White.copy(alpha = 0.5f),
             modifier = Modifier.size(13.dp)
@@ -760,3 +774,88 @@ fun ImmersiveDraftPlayerPreview() {
         )
     }
 }
+
+@Preview
+@Composable
+fun ImmersivePublishedPlayerPreview() {
+    MaterialTheme {
+        ImmersivePlayerScreen(
+            artifact = PlayerArtifact(
+                id = "test_pub_1",
+                title = "Midnight Reflections",
+                author = AuthorSnapshot(name = "Silent Wanderer", sigil = "A1"),
+                emotion = "Peaceful",
+                audioUrl = "",
+                durationMs = 60000,
+                amplitudeData = List(100) { (it % 10) / 10f },
+                createdAt = com.google.firebase.Timestamp.now(),
+                transcript = emptyList(),
+                isPublic = true,
+                isDraft = false
+            ),
+            uiState = PlayerUiState(
+                isPlaying = false,
+                listeningProgress = 0.4f,
+                isResonated = true,
+                resonanceCount = 12,
+                isResonating = false,
+                isSaved = false,
+                isOwner = false,
+                qualifiedPlayCount = 42L,
+                commentCount = 5L,
+                loadState = PlayerLoadState.LOADED
+            ),
+            reviewInteractionState = ReviewInteractionUiState(),
+            onCollapse = {},
+            onTogglePlayback = {},
+            onRewind = {},
+            onForward = {},
+            onSpeedChange = {},
+            onSeek = {},
+            playableArtifact = null
+        )
+    }
+}
+
+@Preview
+@Composable
+fun ImmersiveFollowingPlayerPreview() {
+    MaterialTheme {
+        ImmersivePlayerScreen(
+            artifact = PlayerArtifact(
+                id = "test_pub_2",
+                title = "Midnight Reflections",
+                author = AuthorSnapshot(name = "Silent Wanderer", sigil = "A1"),
+                emotion = "Peaceful",
+                audioUrl = "",
+                durationMs = 60000,
+                amplitudeData = List(100) { (it % 10) / 10f },
+                createdAt = com.google.firebase.Timestamp.now(),
+                transcript = emptyList(),
+                isPublic = true,
+                isDraft = false
+            ),
+            uiState = PlayerUiState(
+                isPlaying = false,
+                listeningProgress = 0.4f,
+                isResonated = true,
+                resonanceCount = 12,
+                isResonating = true,
+                isSaved = true,
+                isOwner = false,
+                qualifiedPlayCount = 42L,
+                commentCount = 5L,
+                loadState = PlayerLoadState.LOADED
+            ),
+            reviewInteractionState = ReviewInteractionUiState(),
+            onCollapse = {},
+            onTogglePlayback = {},
+            onRewind = {},
+            onForward = {},
+            onSpeedChange = {},
+            onSeek = {},
+            playableArtifact = null
+        )
+    }
+}
+

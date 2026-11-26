@@ -21,7 +21,7 @@ import androidx.room.TypeConverters
         DisplayedNotificationEntity::class,
         PendingQualifiedPlayEntity::class,
     ],
-    version = 82,
+    version = 84,
     autoMigrations = [
         AutoMigration(from = 64, to = 65),
         AutoMigration(from = 65, to = 66),
