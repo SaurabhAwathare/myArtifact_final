@@ -188,17 +188,21 @@ export const onArtifactCleanupTrigger = functions
       }
 
       if (!audioDeleted && userId) {
-        // Safety Net: Predictable path deletion for incomplete/abandoned artifacts
-        const predictablePath = `artifacts/${userId}_${artifactId}.m4a`;
-        try {
-          await bucket.file(predictablePath).delete();
-          logger.info(`[CLEANUP] Audio | SafetyNet DELETED | Path=${predictablePath}`);
-          audioDeleted = true;
-        } catch (e: any) {
-          if (e.code === 404) {
-            logger.info(`[CLEANUP] Audio | SafetyNet 404 | Path=${predictablePath}`);
-          } else {
-            logger.error(`[CLEANUP] Audio | SafetyNet Error | Path=${predictablePath}:`, e);
+        // Safety Net: Predictable path deletion for legacy and modern artifacts
+        const predictablePaths = [
+          `artifacts/${userId}_${artifactId}.m4a`,
+          `artifacts/${artifactId}.m4a`,
+        ];
+        for (const predictablePath of predictablePaths) {
+          try {
+            await bucket.file(predictablePath).delete();
+            logger.info(`[CLEANUP] Audio | SafetyNet DELETED | Path=${predictablePath}`);
+            audioDeleted = true;
+            break;
+          } catch (e: any) {
+            if (e.code !== 404) {
+              logger.error(`[CLEANUP] Audio | SafetyNet Error | Path=${predictablePath}:`, e);
+            }
           }
         }
       }
@@ -224,14 +228,20 @@ export const onArtifactCleanupTrigger = functions
       }
 
       if (!transcriptDeleted && userId) {
-        // Safety Net for Transcripts
-        const predictablePath = `transcripts/${userId}_${artifactId}.json`;
-        try {
-          await bucket.file(predictablePath).delete();
-          logger.info(`[CLEANUP] Transcript | SafetyNet DELETED | Path=${predictablePath}`);
-          transcriptDeleted = true;
-        } catch (e: any) {
-          // 404 is expected
+        // Safety Net for Transcripts: Try both legacy and canonical storage paths
+        const predictablePaths = [
+          `transcripts/${userId}_${artifactId}.json`,
+          `transcripts/${artifactId}.json`,
+        ];
+        for (const predictablePath of predictablePaths) {
+          try {
+            await bucket.file(predictablePath).delete();
+            logger.info(`[CLEANUP] Transcript | SafetyNet DELETED | Path=${predictablePath}`);
+            transcriptDeleted = true;
+            break;
+          } catch (e: any) {
+            // 404 is expected if already deleted or path doesn't exist
+          }
         }
       }
 
@@ -505,6 +515,13 @@ export async function processFollowTx(
       // -----------------------------------------------------------------
       // PHASE 1: READ-BEFORE-WRITE (LEDGER FIRST)
       // -----------------------------------------------------------------
+      // Transaction-level Tombstone Check for Actor
+      const actorTombstoneRef = db.collection("deleted_users").doc(actorUid);
+      const actorTombstoneSnap = await transaction.get(actorTombstoneRef);
+      if (actorTombstoneSnap.exists) {
+        return { status: "INVALID_INPUT", generation: 0 };
+      }
+
       const opSnap = await transaction.get(opLedgerRef);
       const relSnap = await transaction.get(relMasterRef);
 
@@ -1612,6 +1629,15 @@ export const onUserDeleted = functions
       return null;
     }
 
+    // Set PENDING state immediately to prevent concurrent session, publishing, or comment operations during cleanup
+    if (typeof tombstoneRef?.set === "function") {
+      await tombstoneRef.set({
+        state: "PENDING",
+        startedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+      logger.info(`[DELETE USER] Tombstone set to PENDING | UID=${uid}`);
+    }
+
     try {
       // 0. Storage Cleanup: Backups (Authoritative prefix purge)
       try {
@@ -2439,6 +2465,10 @@ export async function processCommentIntentTx(
     // 1. TRANSACTION READS (MUST ALL BE COMPLETED BEFORE ANY WRITE!)
     // -----------------------------------------------------------------
 
+    // Read 0: Commenter Tombstone Document
+    const commenterTombstoneRef = db.collection("deleted_users").doc(uid);
+    const commenterTombstoneSnap = await transaction.get(commenterTombstoneRef);
+
     // Read 1: Intent Document
     const intentSnap = await transaction.get(intentRef);
     if (!intentSnap.exists) {
@@ -2526,12 +2556,23 @@ export async function processCommentIntentTx(
     // 2. AUTHORIZATION & ARTIFACT VALIDATION (Before Rate Limiter)
     // -----------------------------------------------------------------
 
-    // Check A: Artifact Existence
-    if (!artifactSnap.exists || !artifactData) {
-      logger.warn(`[COMMENT_INTENT] Artifact missing (${artifactId}) -> REJECTED_NOT_FOUND | UID=${uid}`);
+    // Check 0: Account Status (Tombstone check)
+    if (commenterTombstoneSnap.exists) {
+      logger.warn(`[COMMENT_INTENT] Commenter account deleted or pending deletion (${uid}) -> REJECTED_UNAUTHORIZED`);
+      transaction.update(intentRef, {
+        status: "REJECTED_UNAUTHORIZED",
+        rejectionReason: "User account deleted or deletion in progress",
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      return;
+    }
+
+    // Check A: Artifact Existence and Active Status
+    if (!artifactSnap.exists || !artifactData || artifactData.status === "DELETED") {
+      logger.warn(`[COMMENT_INTENT] Artifact missing or deleted (${artifactId}) -> REJECTED_NOT_FOUND | UID=${uid}`);
       transaction.update(intentRef, {
         status: "REJECTED_NOT_FOUND",
-        rejectionReason: "Artifact does not exist",
+        rejectionReason: artifactData?.status === "DELETED" ? "Artifact has been deleted" : "Artifact does not exist",
         updatedAt: FieldValue.serverTimestamp(),
       });
       return;
@@ -3367,6 +3408,16 @@ export const reserveEpisode = functions.https.onCall(async (data, context) => {
     const identityResetVersion = userData.identityMetadata?.identityResetVersion || 0;
 
     return await db.runTransaction(async (transaction) => {
+      // Transaction-level Tombstone Check: Abort if user account is deleted or pending deletion
+      const tombstoneRef = db.doc(`deleted_users/${uid}`);
+      const tombstoneSnap = await transaction.get(tombstoneRef);
+      if (tombstoneSnap.exists) {
+        throw new functions.https.HttpsError(
+          "permission-denied",
+          "User account deleted or deletion in progress."
+        );
+      }
+
       const reservationRef = db.doc(`users/${uid}/private/published_artifacts/artifacts/${cleanDraftId}`);
       const sequenceRef = db.doc(`users/${uid}/private/sequence`);
 
@@ -3552,6 +3603,16 @@ export const preparePublish = functions.https.onCall(async (data, context) => {
     const identityResetVersion = userData.identityMetadata?.identityResetVersion || 0;
 
     return await db.runTransaction(async (transaction) => {
+      // Transaction-level Tombstone Check: Abort if user account is deleted or pending deletion
+      const tombstoneRef = db.doc(`deleted_users/${uid}`);
+      const tombstoneSnap = await transaction.get(tombstoneRef);
+      if (tombstoneSnap.exists) {
+        throw new functions.https.HttpsError(
+          "permission-denied",
+          "User account deleted or deletion in progress."
+        );
+      }
+
       const reservationRef = db.doc(`users/${uid}/private/published_artifacts/artifacts/${cleanDraftId}`);
       const sequenceRef = db.doc(`users/${uid}/private/sequence`);
 
@@ -3855,6 +3916,16 @@ export const finalizePublish = functions.https.onCall(async (data, context) => {
     }
 
     return await db.runTransaction(async (transaction) => {
+      // Transaction-level Tombstone Check: Abort if user account is deleted or pending deletion
+      const tombstoneRef = db.doc(`deleted_users/${uid}`);
+      const tombstoneSnap = await transaction.get(tombstoneRef);
+      if (tombstoneSnap.exists) {
+        throw new functions.https.HttpsError(
+          "permission-denied",
+          "User account deleted or deletion in progress."
+        );
+      }
+
       const reservationDoc = await transaction.get(reservationRef);
       if (!reservationDoc.exists) {
         throw new functions.https.HttpsError("permission-denied", "No publication reservation found for this user.");

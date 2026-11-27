@@ -14,6 +14,7 @@ jest.mock("firebase-admin/firestore", () => ({
 
 const mockBulkWriter = {
   update: jest.fn(),
+  delete: jest.fn(),
   close: jest.fn(() => Promise.resolve()),
 };
 
@@ -97,15 +98,42 @@ describe("Legal Hold & Evidence Preservation", () => {
         { id: "art_normal", ref: { id: "art_normal" }, data: () => ({ status: "ACTIVE", moderation: { legalHold: false } }) }
       ];
 
-      // Use mockImplementationOnce to preserve original behavior for other calls
-      (db.collection as jest.Mock).mockImplementationOnce((name: any) => {
+      // Intercept the registry collection query inside users/suspect_user
+      const makeRecursiveDocMock = (docId: string) => ({
+        id: docId,
+        get: jest.fn(() => Promise.resolve({
+          exists: true,
+          data: () => {
+            const found = mockArtifacts.find((a) => a.id === docId);
+            return found ? found.data() : {};
+          },
+        })),
+        delete: jest.fn(() => Promise.resolve()),
+        collection: jest.fn(() => makeRecursiveCollMock()),
+      });
+
+      const makeRecursiveCollMock = () => ({
+        doc: jest.fn((docId?: string) => makeRecursiveDocMock(docId || "gen_doc")),
+        where: jest.fn().mockReturnThis(),
+        limit: jest.fn(() => ({
+          get: jest.fn(() => Promise.resolve({ empty: false, size: 2, docs: mockArtifacts })),
+        })),
+        get: jest.fn(() => Promise.resolve({ empty: true, size: 0, docs: [] })),
+      });
+
+      (db.collection as jest.Mock).mockImplementation((name: any) => {
+        if (name === "users") {
+          return makeRecursiveCollMock();
+        }
         if (name === "artifacts") {
           return {
+            doc: jest.fn((id: string) => makeRecursiveDocMock(id)),
             where: jest.fn().mockReturnThis(),
-            get: jest.fn(() => Promise.resolve({ empty: false, size: 2, docs: mockArtifacts }))
+            limit: jest.fn().mockReturnThis(),
+            get: jest.fn(() => Promise.resolve({ empty: true, size: 0, docs: [] })),
           };
         }
-        return (db.collection as any).getMockImplementation()(name);
+        return makeRecursiveCollMock();
       });
 
       await wrapped({ uid } as any);

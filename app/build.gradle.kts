@@ -75,8 +75,8 @@ configure<com.android.build.api.dsl.ApplicationExtension> {
         applicationId = "com.saurabh.artifact"
         minSdk = 24
         targetSdk = 36
-        versionCode = 20
-        versionName = "2.0.2"
+        versionCode = 21
+        versionName = "2.0.3"
 
         testInstrumentationRunner = "com.saurabh.artifact.HiltTestRunner"
     }

@@ -206,7 +206,7 @@ export async function aggregatePlayEventTx(
     // Decision 2: Stage E — Tombstone and Deletion Protection
     if (tombstoneDoc.exists) {
       const tombstoneState = tombstoneDoc.data()?.state;
-      if (tombstoneState === "PENDING_DELETION" || tombstoneState === "DELETED") {
+      if (tombstoneState === "PENDING_DELETION" || tombstoneState === "PENDING" || tombstoneState === "DELETED") {
         logger.warn(`[PLAY_AGGREGATE] Rejected: User deleted or pending deletion | UID=${userId} | State=${tombstoneState}`);
         transaction.set(idempotencyRef, {
           status: "REJECTED",

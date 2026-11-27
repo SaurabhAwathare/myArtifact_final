@@ -240,7 +240,7 @@ describe("Account Deletion Pipeline", () => {
           return makeSnap(true, artifactData, path);
         }
         if (path === `users/${callerUid}/private/settings`) {
-          return makeSnap(false, {}, path);
+          return makeSnap(true, { activeSessionId: "session_123" }, path);
         }
         return makeSnap(false, {}, path);
       });
@@ -276,7 +276,7 @@ describe("Account Deletion Pipeline", () => {
           return makeSnap(true, { userId: callerUid }, path);
         }
         if (path === `users/${callerUid}/private/settings`) {
-          return makeSnap(false, {}, path);
+          return makeSnap(true, { activeSessionId: "session_123" }, path);
         }
         return makeSnap(false, {}, path);
       });
@@ -303,7 +303,7 @@ describe("Account Deletion Pipeline", () => {
           return makeSnap(true, { userId: userB, status: "ACTIVE" }, path);
         }
         if (path === `users/${userA}/private/settings`) {
-          return makeSnap(false, {}, path);
+          return makeSnap(true, { activeSessionId: "session_A" }, path);
         }
         return makeSnap(false, {}, path);
       });
@@ -322,6 +322,9 @@ describe("Account Deletion Pipeline", () => {
         if (path === `artifacts/${artifactId}`) {
           return makeSnap(true, { userId: userB, status: "ACTIVE" }, path);
         }
+        if (path === `users/${userA}/private/settings`) {
+          return makeSnap(true, { activeSessionId: "session_A" }, path);
+        }
         return makeSnap(false, {}, path);
       });
 
@@ -338,6 +341,9 @@ describe("Account Deletion Pipeline", () => {
       mockFirestore.doc.mockImplementation((path: string) => {
         if (path === `artifacts/${artifactId}`) {
           return makeSnap(true, { userId: userB, status: "ACTIVE" }, path);
+        }
+        if (path === `users/${userA}/private/settings`) {
+          return makeSnap(true, { activeSessionId: "session_A" }, path);
         }
         return makeSnap(false, {}, path);
       });
@@ -360,6 +366,9 @@ describe("Account Deletion Pipeline", () => {
         if (path === `persona_mapping/${anonId}`) {
           return makeSnap(true, { userId: userA }, path);
         }
+        if (path === `users/${userA}/private/settings`) {
+          return makeSnap(true, { activeSessionId: "session_A" }, path);
+        }
         return makeSnap(false, {}, path);
       });
 
@@ -376,6 +385,9 @@ describe("Account Deletion Pipeline", () => {
         if (path === `artifacts/${artifactId}`) {
           return makeSnap(false, null, path);
         }
+        if (path === `users/${callerUid}/private/settings`) {
+          return makeSnap(true, { activeSessionId: "session_123" }, path);
+        }
         return makeSnap(false, {}, path);
       });
 
@@ -390,7 +402,15 @@ describe("Account Deletion Pipeline", () => {
     });
 
     it("TEST 9: Malformed / missing artifactId -> invalid-argument", async () => {
+      const callerUid = "user_123";
       const wrapped = testEnv.wrap(myFunctions.deleteArtifact);
+
+      mockFirestore.doc.mockImplementation((path: string) => {
+        if (path === `users/${callerUid}/private/settings`) {
+          return makeSnap(true, { activeSessionId: "session_123" }, path);
+        }
+        return makeSnap(false, {}, path);
+      });
 
       await expect(wrapped({}, { auth: { uid: "user_123", token: { activeSessionId: "session_123" } } })).rejects.toThrow("Valid artifactId is required.");
       await expect(wrapped({ artifactId: "" }, { auth: { uid: "user_123", token: { activeSessionId: "session_123" } } })).rejects.toThrow("Valid artifactId is required.");
@@ -407,7 +427,7 @@ describe("Account Deletion Pipeline", () => {
           return makeSnap(true, { userId: userB, status: "ACTIVE" }, path);
         }
         if (path === `users/${adminUid}/private/settings`) {
-          return makeSnap(true, { isAdmin: true }, path);
+          return makeSnap(true, { isAdmin: true, activeSessionId: "session_admin" }, path);
         }
         return makeSnap(false, {}, path);
       });

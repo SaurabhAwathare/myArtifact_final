@@ -258,7 +258,7 @@ class SettingsRepository @Inject constructor(
                 return Result.failure(IllegalStateException("Account deletion tombstone is missing."))
             }
             val state = tombstoneDoc.getString("state")
-            if (state != "PENDING_DELETION") {
+            if (state != "PENDING_DELETION" && state != "PENDING" && state != "DELETED") {
                 return Result.failure(IllegalStateException("Account deletion tombstone has unexpected state: $state"))
             }
             Result.success(Unit)

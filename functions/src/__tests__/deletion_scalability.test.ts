@@ -35,7 +35,7 @@ const mockCollection: any = {
 };
 
 const mockTransaction: any = {
-  get: jest.fn((ref: any) => Promise.resolve({ exists: true, data: () => ({}) })),
+  get: jest.fn((ref: any) => Promise.resolve({ exists: true, data: () => ({ userId: "other_uid_123", anonymousId: "anon_user_123" }) })),
   delete: jest.fn(),
   update: jest.fn(),
 };
@@ -74,7 +74,7 @@ jest.mock("firebase-admin", () => {
 describe("Account Deletion Scalability", () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    mockDoc.data.mockReturnValue({});
+    mockDoc.data.mockReturnValue({ userId: "other_uid_123", anonymousId: "anon_user_123" });
     mockDoc.exists = true;
     mockCollection.get.mockResolvedValue({ empty: true, size: 0, docs: [] });
   });
@@ -105,7 +105,9 @@ describe("Account Deletion Scalability", () => {
     // ...
     mockCollection.get
       .mockResolvedValueOnce({ empty: true, size: 0, docs: [] }) // Art
-      .mockResolvedValueOnce({ empty: true, size: 0, docs: [] }) // Notif
+      .mockResolvedValueOnce({ empty: true, size: 0, docs: [] }) // Notif Received
+      .mockResolvedValueOnce({ empty: true, size: 0, docs: [] }) // Notif Actor
+      .mockResolvedValueOnce({ empty: true, size: 0, docs: [] }) // Notif Follower
       .mockResolvedValueOnce({ empty: false, size: 100, docs: mockResonanceDocs.slice(0, 100) }) // ResOut P1
       .mockResolvedValueOnce({ empty: false, size: 50, docs: mockResonanceDocs.slice(100, 150) }) // ResOut P2
       .mockResolvedValueOnce({ empty: true, size: 0, docs: [] }) // ResOut P3
@@ -127,7 +129,7 @@ describe("Account Deletion Scalability", () => {
     );
 
     // Verify idempotency check: marker existence was checked in each transaction
-    expect(mockTransaction.get).toHaveBeenCalledTimes(150);
+    expect(mockTransaction.get).toHaveBeenCalledTimes(300);
   });
 
   it("should cleanup authored reports using paged batch deletion", async () => {
