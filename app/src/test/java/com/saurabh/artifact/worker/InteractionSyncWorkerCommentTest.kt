@@ -86,6 +86,7 @@ class InteractionSyncWorkerCommentTest {
             firestoreEngagementRepository,
             commentRepository,
             userRepository,
+            mockk(relaxed = true),
             startupCoordinator,
             errorClassifier,
             Lazy { mockk<AuthRepository>(relaxed = true) },

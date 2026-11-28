@@ -16,6 +16,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -26,6 +28,21 @@ import kotlinx.coroutines.launch
 import dagger.Lazy
 import javax.inject.Inject
 import javax.inject.Singleton
+
+sealed class SuppressionRestorationState {
+    abstract val userId: String?
+
+    object Idle : SuppressionRestorationState() {
+        override val userId: String? = null
+    }
+    data class InProgress(override val userId: String = "") : SuppressionRestorationState()
+    data class Completed(val restoredCount: Int = 0, override val userId: String = "") : SuppressionRestorationState() {
+        constructor(restoredCount: Int) : this(restoredCount, "")
+    }
+    data class Failed(val error: Throwable = Exception(), override val userId: String = "") : SuppressionRestorationState() {
+        constructor(error: Throwable) : this(error, "")
+    }
+}
 
 /**
  * Higher-level manager that orchestrates anonymous and authenticated profiles.
@@ -41,7 +58,8 @@ class UserProfileManager @Inject constructor(
     private val notificationRepository: NotificationRepository,
     private val personalizationEngine: PersonalizationEngine,
     private val visibilityFilter: Lazy<ArtifactVisibilityFilter>,
-    @com.saurabh.artifact.di.ApplicationScope internal val managerScope: CoroutineScope
+    @com.saurabh.artifact.di.ApplicationScope internal val managerScope: CoroutineScope,
+    private val artifactEngagementRepository: Lazy<ArtifactEngagementRepository> = Lazy { error("ArtifactEngagementRepository not provided") }
 ) {
 
     /**
@@ -52,6 +70,11 @@ class UserProfileManager @Inject constructor(
     }
 
     private var safetySyncJob: kotlinx.coroutines.Job? = null
+    private var reportSyncJob: kotlinx.coroutines.Job? = null
+    private var activeSafetySyncUserId: String? = null
+
+    private val _suppressionRestorationState = MutableStateFlow<SuppressionRestorationState>(SuppressionRestorationState.Idle)
+    val suppressionRestorationState: StateFlow<SuppressionRestorationState> = _suppressionRestorationState
 
     init {
         // Initialize anonymous ID if missing
@@ -118,18 +141,52 @@ class UserProfileManager @Inject constructor(
 
     /**
      * Explicitly initializes the cross-device safety synchronization for the given user.
-     * This ensures suppression markers are synchronized before discovery surfaces are shown.
+     * Restores private suppression records (NOT_FOR_ME) and syncs private reports.
      * Manages its own lifecycle to prevent duplicate listeners or cross-account leakage.
      */
     fun initializeSafetySync(userId: String) {
         if (userId.isEmpty()) return
         
-        // Stop any existing sync to ensure clean boundary for account swaps
+        val currentState = _suppressionRestorationState.value
+        if (activeSafetySyncUserId == userId && currentState is SuppressionRestorationState.Completed && currentState.userId == userId) {
+            Log.d("UserProfileManager", "Safety sync already completed for $userId")
+            return
+        }
+        if (activeSafetySyncUserId == userId && safetySyncJob?.isActive == true) {
+            Log.d("UserProfileManager", "Safety sync already active for $userId")
+            return
+        }
+
         stopSafetySync()
-        
+        activeSafetySyncUserId = userId
+
         Log.i("UserProfileManager", "Initializing Safety Sync for $userId")
+        _suppressionRestorationState.value = SuppressionRestorationState.InProgress(userId)
+
+        val targetUserId = userId
+
         safetySyncJob = managerScope.launch {
-            visibilityFilter.get().syncReportsFromRemote(userId, managerScope).collect()
+            val result = artifactEngagementRepository.get().restoreSuppressionRecords(targetUserId)
+            if (activeSafetySyncUserId != targetUserId) {
+                Log.w("UserProfileManager", "Safety sync completed for $targetUserId, but active user changed to $activeSafetySyncUserId. Ignoring result.")
+                return@launch
+            }
+            if (result.isSuccess) {
+                sessionManager.setSuppressionRestorationCompleted(targetUserId, true)
+                _suppressionRestorationState.value = SuppressionRestorationState.Completed(
+                    restoredCount = result.getOrDefault(0),
+                    userId = targetUserId
+                )
+            } else {
+                _suppressionRestorationState.value = SuppressionRestorationState.Failed(
+                    error = result.exceptionOrNull() ?: Exception("Restoration failed"),
+                    userId = targetUserId
+                )
+            }
+        }
+
+        reportSyncJob = managerScope.launch {
+            visibilityFilter.get().syncReportsFromRemote(targetUserId, managerScope).collect()
         }
     }
 
@@ -141,7 +198,13 @@ class UserProfileManager @Inject constructor(
             Log.d("UserProfileManager", "Stopping active Safety Sync")
             safetySyncJob?.cancel()
         }
+        if (reportSyncJob?.isActive == true) {
+            reportSyncJob?.cancel()
+        }
         safetySyncJob = null
+        reportSyncJob = null
+        activeSafetySyncUserId = null
+        _suppressionRestorationState.value = SuppressionRestorationState.Idle
     }
 
     /**

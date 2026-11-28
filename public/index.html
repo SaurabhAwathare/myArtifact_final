@@ -88,7 +88,17 @@
             font-size: 1.3rem;
             font-weight: 500;
             color: var(--accent-color);
-            margin-bottom: 3rem;
+            margin-bottom: 2rem;
+        }
+
+        .share-explanation {
+            font-size: 0.95rem;
+            color: #aaa;
+            margin-bottom: 2.5rem;
+            line-height: 1.6;
+            max-width: 440px;
+            margin-left: auto;
+            margin-right: auto;
         }
 
         .cta-button {
@@ -156,11 +166,12 @@
             <div class="share-label">A moment from the Human Library</div>
 
             <div id="loading" class="status-msg">Accessing the archive...</div>
-            <div id="error" class="status-msg" style="display: none;">This Artifact is no longer available.</div>
+            <div id="error" class="status-msg" style="display: none;">This Artifact is unavailable or private.</div>
 
             <div id="details" style="display: none; width: 100%;">
                 <div id="title" class="artifact-title"></div>
                 <div id="author" class="artifact-author"></div>
+                <p class="share-explanation">This voice recording is part of the Artifact Human Library. Listen to the full audio recording using the Artifact application on Android.</p>
 
                 <a href="https://play.google.com/store/apps/details?id=com.saurabh.artifact" class="cta-button">Listen in Artifact</a>
             </div>
@@ -201,9 +212,10 @@
                     const doc = await response.json();
                     const fields = doc.fields;
 
-                    // Privacy Gate: Verify public visibility
-                    const isPublic = fields.isPublic && fields.isPublic.booleanValue;
-                    if (isPublic !== true) throw new Error('Private');
+                    // Privacy Gate: Verify public visibility & draft state (equivalent to ShareEligibility: isPublic && !isDraft)
+                    const isPublic = fields.isPublic && fields.isPublic.booleanValue === true;
+                    const isDraft = fields.isDraft && fields.isDraft.booleanValue === true;
+                    if (!isPublic || isDraft) throw new Error('Private');
 
                     const title = fields.title ? fields.title.stringValue : 'Untitled';
 

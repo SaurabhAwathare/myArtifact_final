@@ -19,6 +19,7 @@ import com.saurabh.artifact.domain.prompt.GetReflectionPromptUseCase
 import com.saurabh.artifact.model.*
 import com.saurabh.artifact.repository.ArtifactRepository
 import com.saurabh.artifact.repository.ArtifactEngagementRepository
+import com.saurabh.artifact.repository.FeedRepository
 import com.saurabh.artifact.repository.ModerationEvent
 import com.saurabh.artifact.repository.AuthRepository
 import com.saurabh.artifact.repository.UserRepository
@@ -108,6 +109,7 @@ class FeedViewModel @Inject constructor(
     getPersonalizedFeedFlowUseCase: GetPersonalizedFeedFlowUseCase,
     private val getReflectionPromptUseCase: GetReflectionPromptUseCase,
     private val diagnosticLogger: DiagnosticLogger,
+    private val feedRepository: FeedRepository? = null,
     private val userRepository: UserRepository? = null,
     private val feedErrorClassifier: FeedErrorClassifier? = null,
     private val databaseEncryptionManager: DatabaseEncryptionManager? = null
@@ -624,6 +626,8 @@ class FeedViewModel @Inject constructor(
                 } else {
                     _uiState.update { it.copy(error = UiError(UiText.DynamicString("Feedback received. This helps improve your feed."))) }
                     if (type == FeedbackType.NOT_FOR_ME) {
+                        feedRepository?.clearDiscoveryBuffer()
+                        _refreshTrigger.value += 1
                         loadRankedFeed()
                     }
                 }

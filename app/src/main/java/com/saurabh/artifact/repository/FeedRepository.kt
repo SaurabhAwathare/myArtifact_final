@@ -162,8 +162,7 @@ class FeedRepository @Inject constructor(
     private val discoveryBuffer = DiscoveryCandidateBuffer()
     private val discoveryBufferLock = Any()
 
-    @VisibleForTesting
-    internal fun clearDiscoveryBuffer() {
+    fun clearDiscoveryBuffer() {
         synchronized(discoveryBufferLock) {
             discoveryBuffer.clear()
         }
@@ -186,6 +185,9 @@ class FeedRepository @Inject constructor(
             var firestoreCursorToReturn: DocumentSnapshot? = null
             var needFirestoreFetch = false
 
+            val suppressedIds = userId?.let { visibilityFilter.getSuppressedIdsSnapshot(it) } ?: emptySet()
+            val ignoredUserIds = userId?.let { visibilityFilter.getIgnoredUserIdsSnapshot(it) } ?: emptySet()
+
             synchronized(discoveryBufferLock) {
                 if (discoveryBuffer.key != currentKey) {
                     discoveryBuffer.clear()
@@ -202,10 +204,24 @@ class FeedRepository @Inject constructor(
                     discoveryBuffer.key = currentKey
                     needFirestoreFetch = true
                 } else {
-                    val count = minOf(limit, discoveryBuffer.remainingCandidates.size)
-                    candidatesToEmit = discoveryBuffer.remainingCandidates.take(count)
-                    repeat(count) { discoveryBuffer.remainingCandidates.removeAt(0) }
-                    firestoreCursorToReturn = discoveryBuffer.lastFirestoreSnapshotDoc
+                    // Filter remaining candidates against latest suppression IDs and safety policy
+                    discoveryBuffer.remainingCandidates.removeAll { candidate ->
+                        !safetyPolicy.isEligibleForDiscovery(
+                            artifact = candidate,
+                            currentUserId = userId,
+                            isSuppressedByUser = suppressedIds.contains(candidate.id),
+                            ignoredUserIds = ignoredUserIds
+                        )
+                    }
+
+                    if (discoveryBuffer.remainingCandidates.isEmpty()) {
+                        needFirestoreFetch = true
+                    } else {
+                        val count = minOf(limit, discoveryBuffer.remainingCandidates.size)
+                        candidatesToEmit = discoveryBuffer.remainingCandidates.take(count)
+                        repeat(count) { discoveryBuffer.remainingCandidates.removeAt(0) }
+                        firestoreCursorToReturn = discoveryBuffer.lastFirestoreSnapshotDoc
+                    }
                 }
             }
 
@@ -236,8 +252,6 @@ class FeedRepository @Inject constructor(
                 }
 
                 val snapshot = query.get().await()
-                val suppressedIds = userId?.let { visibilityFilter.getSuppressedIdsSnapshot(it) } ?: emptySet()
-                val ignoredUserIds = userId?.let { visibilityFilter.getIgnoredUserIdsSnapshot(it) } ?: emptySet()
 
                 val rawArtifacts = snapshot.documents.mapNotNull { doc ->
                     val artifact = doc.toObject(Artifact::class.java)?.copy(id = doc.id)
@@ -309,8 +323,20 @@ class FeedRepository @Inject constructor(
                     emotion = emotion,
                     limit = 50
                 )
-                if (cachedArtifacts.isNotEmpty()) {
-                    val ranked = recommendationService.rank(cachedArtifacts, userId)
+                val fallbackSuppressedIds = userId?.let { visibilityFilter.getSuppressedIdsSnapshot(it) } ?: emptySet()
+                val fallbackIgnoredUserIds = userId?.let { visibilityFilter.getIgnoredUserIdsSnapshot(it) } ?: emptySet()
+
+                val eligibleCached = cachedArtifacts.filter { artifact ->
+                    safetyPolicy.isEligibleForDiscovery(
+                        artifact = artifact,
+                        currentUserId = userId,
+                        isSuppressedByUser = fallbackSuppressedIds.contains(artifact.id),
+                        ignoredUserIds = fallbackIgnoredUserIds
+                    )
+                }
+
+                if (eligibleCached.isNotEmpty()) {
+                    val ranked = recommendationService.rank(eligibleCached, userId)
                     val currentKey = DiscoveryBufferKey(userId, emotion)
                     var candidatesToEmit: List<Artifact>
                     synchronized(discoveryBufferLock) {

@@ -36,6 +36,7 @@ class PersonalizedPagingSourceTest {
 
         coEvery { visibilityFilter.getSuppressedIdsSnapshot(any()) } returns emptySet()
         coEvery { visibilityFilter.getIgnoredUserIdsSnapshot(any()) } returns emptySet()
+        coEvery { visibilityFilter.isSuppressionRestorationReady(any()) } returns true
 
         pagingSource = PersonalizedPagingSource(
             userId = userId,
@@ -149,27 +150,32 @@ class PersonalizedPagingSourceTest {
     }
 
     @Test
-    fun `load filters suppressed artifacts using snapshot`() = runTest {
+    fun `load re-evaluates suppressed artifacts snapshot on every page load`() = runTest {
         val artifact1 = Artifact(id = "1")
         val artifact2 = Artifact(id = "2")
+        val artifact3 = Artifact(id = "3")
         val page1 = PaginatedArtifacts(listOf(artifact1, artifact2), null)
-        
+        val page2 = PaginatedArtifacts(listOf(artifact3), null)
+
         coEvery { feedRepository.getResonatingArtifacts(any(), any(), any()) } returns Result.success(page1)
         coEvery { feedRepository.getDiscoveryCandidates(any(), any(), any()) } returns Result.success(PaginatedArtifacts(emptyList(), null))
         coEvery { visibilityFilter.getSuppressedIdsSnapshot(userId) } returns setOf("1")
 
-        val result = pagingSource.load(
+        val result1 = pagingSource.load(
             PagingSource.LoadParams.Refresh(null, 10, false)
         ) as PagingSource.LoadResult.Page
 
-        assertEquals(1, result.data.size)
-        assertEquals("2", result.data[0].first.id)
-        
-        // Verify filter only called once (snapshot behavior)
+        assertEquals(1, result1.data.size)
+        assertEquals("2", result1.data[0].first.id)
         coVerify(exactly = 1) { visibilityFilter.getSuppressedIdsSnapshot(userId) }
-        
-        pagingSource.load(PagingSource.LoadParams.Append(result.nextKey!!, 10, false))
-        coVerify(exactly = 1) { visibilityFilter.getSuppressedIdsSnapshot(userId) }
+
+        // Simulate new suppression added for artifact 3 before page 2 load
+        coEvery { visibilityFilter.getSuppressedIdsSnapshot(userId) } returns setOf("1", "3")
+        coEvery { feedRepository.getResonatingArtifacts(any(), any(), any()) } returns Result.success(page2)
+
+        val result2 = pagingSource.load(PagingSource.LoadParams.Append(result1.nextKey!!, 10, false)) as PagingSource.LoadResult.Page
+        assertTrue("Newly suppressed artifact 3 must be excluded from page 2", result2.data.isEmpty())
+        coVerify(exactly = 2) { visibilityFilter.getSuppressedIdsSnapshot(userId) }
     }
 
     @Test

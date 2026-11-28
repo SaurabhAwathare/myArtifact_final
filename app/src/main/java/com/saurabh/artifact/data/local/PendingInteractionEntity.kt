@@ -33,6 +33,7 @@ object InteractionType {
     const val ARTIFACT_COUNT = "ARTIFACT_COUNT"
     const val COMMENT = "COMMENT"
     const val IGNORE = "IGNORE"
+    const val NOT_FOR_ME = "NOT_FOR_ME"
 }
 
 object InteractionAction {

@@ -17,6 +17,7 @@ interface ArtifactDao {
         SELECT * FROM artifacts 
         WHERE (recommendationState != 'SUPPRESSED' 
           AND id NOT IN (SELECT artifactId FROM reported_artifacts WHERE userId = :currentUserId)
+          AND id NOT IN (SELECT artifactId FROM suppressed_artifacts WHERE userId = :currentUserId)
           AND authorAnonymousId NOT IN (SELECT userId FROM ignored_users WHERE ownerUserId = :currentUserId))
         ORDER BY createdAt DESC, id DESC
     """)
@@ -29,6 +30,7 @@ interface ArtifactDao {
         SELECT * FROM artifacts 
         WHERE (recommendationState != 'SUPPRESSED' 
           AND id NOT IN (SELECT artifactId FROM reported_artifacts WHERE userId = :currentUserId)
+          AND id NOT IN (SELECT artifactId FROM suppressed_artifacts WHERE userId = :currentUserId)
           AND authorAnonymousId NOT IN (SELECT userId FROM ignored_users WHERE ownerUserId = :currentUserId))
         AND (
             emotion IN (:emotions) 
@@ -46,6 +48,7 @@ interface ArtifactDao {
         SELECT * FROM artifacts 
         WHERE (recommendationState != 'SUPPRESSED' 
           AND (:currentUserId = '' OR id NOT IN (SELECT artifactId FROM reported_artifacts WHERE userId = :currentUserId))
+          AND (:currentUserId = '' OR id NOT IN (SELECT artifactId FROM suppressed_artifacts WHERE userId = :currentUserId))
           AND (:currentUserId = '' OR authorAnonymousId NOT IN (SELECT userId FROM ignored_users WHERE ownerUserId = :currentUserId)))
         ORDER BY createdAt DESC, id DESC
         LIMIT :limit
@@ -56,6 +59,7 @@ interface ArtifactDao {
         SELECT * FROM artifacts 
         WHERE (recommendationState != 'SUPPRESSED' 
           AND (:currentUserId = '' OR id NOT IN (SELECT artifactId FROM reported_artifacts WHERE userId = :currentUserId))
+          AND (:currentUserId = '' OR id NOT IN (SELECT artifactId FROM suppressed_artifacts WHERE userId = :currentUserId))
           AND (:currentUserId = '' OR authorAnonymousId NOT IN (SELECT userId FROM ignored_users WHERE ownerUserId = :currentUserId)))
         AND (
             emotion IN (:emotions) 

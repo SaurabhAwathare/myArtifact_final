@@ -58,7 +58,7 @@ describe("Contextual Evidence Elevation (CEE)", () => {
     // Mock admin settings to return isAdmin: false
     db.get.mockResolvedValueOnce({ exists: true, data: () => ({ isAdmin: false }) });
 
-    await expect(wrapped({ artifactId: "art1" }, { auth: { uid: adminUid } }))
+    await expect(wrapped({ artifactId: "art1" }, { app: { appId: "test" }, auth: { uid: adminUid } }))
       .rejects.toThrow(/Unauthorized/);
   });
 
@@ -69,7 +69,7 @@ describe("Contextual Evidence Elevation (CEE)", () => {
     // 2. Artifact check (No Hold)
     db.get.mockResolvedValueOnce({ exists: true, data: () => ({ moderation: { legalHold: false } }) });
 
-    await expect(wrapped({ artifactId: "art1" }, { auth: { uid: adminUid } }))
+    await expect(wrapped({ artifactId: "art1" }, { app: { appId: "test" }, auth: { uid: adminUid } }))
       .rejects.toThrow(/not under Legal Hold/);
   });
 
@@ -82,7 +82,7 @@ describe("Contextual Evidence Elevation (CEE)", () => {
     // 3. Reports check (EMPTY)
     db.get.mockResolvedValueOnce({ empty: true });
 
-    await expect(wrapped({ artifactId: "art1" }, { auth: { uid: adminUid } }))
+    await expect(wrapped({ artifactId: "art1" }, { app: { appId: "test" }, auth: { uid: adminUid } }))
       .rejects.toThrow(/No confirmed Child Safety violation/);
   });
 
@@ -101,6 +101,7 @@ describe("Contextual Evidence Elevation (CEE)", () => {
     db.get.mockResolvedValueOnce({ exists: true, data: () => ({ email: "creator@example.com" }) });
 
     const result = await wrapped({ artifactId }, {
+      app: { appId: "test" },
       auth: { uid: adminUid },
       rawRequest: { ip: "1.2.3.4" }
     } as any);
@@ -132,6 +133,7 @@ describe("Contextual Evidence Elevation (CEE)", () => {
     db.get.mockResolvedValueOnce({ exists: true, data: () => ({ email: "creator@example.com" }) });
 
     const result = await wrapped({ artifactId }, {
+      app: { appId: "test" },
       auth: { uid: adminUid },
       rawRequest: { ip: "1.2.3.4" }
     } as any);
@@ -153,7 +155,7 @@ describe("Contextual Evidence Elevation (CEE)", () => {
     // Mock audit write failure
     db.add.mockRejectedValueOnce(new Error("Firestore Error"));
 
-    await expect(wrapped({ artifactId: "art1" }, { auth: { uid: adminUid } }))
+    await expect(wrapped({ artifactId: "art1" }, { app: { appId: "test" }, auth: { uid: adminUid } }))
       .rejects.toThrow(/An internal error occurred/);
   });
 });

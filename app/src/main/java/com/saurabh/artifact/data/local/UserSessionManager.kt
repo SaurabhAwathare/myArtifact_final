@@ -318,6 +318,7 @@ class UserSessionManager @Inject constructor(
                 preferences.remove(PreferencesKeys.IS_ANONYMOUS)
                 preferences.remove(PreferencesKeys.RESONANCE_IN)
                 preferences.remove(PreferencesKeys.RESONANCE_OUT)
+                preferences.remove(booleanPreferencesKey("suppression_restored_$expectedUid"))
             }
         }
     }
@@ -335,6 +336,41 @@ class UserSessionManager @Inject constructor(
         
         // Purge persistent identity markers from Google Play Services
         blockStoreManager.clear()
+    }
+
+    /**
+     * Reactive stream of durable suppression restoration completion status for [userId].
+     */
+    fun observeSuppressionRestorationCompleted(userId: String): Flow<Boolean> {
+        if (userId.isBlank()) return kotlinx.coroutines.flow.flowOf(false)
+        return dataStore.data.map { preferences ->
+            preferences[booleanPreferencesKey("suppression_restored_$userId")] ?: false
+        }
+    }
+
+    /**
+     * One-shot check for durable suppression restoration completion for [userId].
+     */
+    suspend fun isSuppressionRestorationCompleted(userId: String): Boolean {
+        if (userId.isBlank()) return false
+        return dataStore.data.map { preferences ->
+            preferences[booleanPreferencesKey("suppression_restored_$userId")] ?: false
+        }.first()
+    }
+
+    /**
+     * Sets the durable suppression restoration completion marker for [userId].
+     */
+    suspend fun setSuppressionRestorationCompleted(userId: String, completed: Boolean) {
+        if (userId.isBlank()) return
+        dataStore.edit { preferences ->
+            val key = booleanPreferencesKey("suppression_restored_$userId")
+            if (completed) {
+                preferences[key] = true
+            } else {
+                preferences.remove(key)
+            }
+        }
     }
 
     /**

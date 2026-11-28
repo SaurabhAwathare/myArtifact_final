@@ -99,4 +99,9 @@ object DatabaseModule {
     fun providePendingQualifiedPlayDao(database: AppDatabase): com.saurabh.artifact.data.local.PendingQualifiedPlayDao {
         return database.pendingQualifiedPlayDao()
     }
+
+    @Provides
+    fun provideSuppressedArtifactDao(database: AppDatabase): com.saurabh.artifact.data.local.SuppressedArtifactDao {
+        return database.suppressedArtifactDao()
+    }
 }

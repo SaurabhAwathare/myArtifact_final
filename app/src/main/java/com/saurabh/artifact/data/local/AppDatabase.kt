@@ -20,8 +20,9 @@ import androidx.room.TypeConverters
         UserConsumedPromptEntity::class,
         DisplayedNotificationEntity::class,
         PendingQualifiedPlayEntity::class,
+        SuppressedArtifactEntity::class,
     ],
-    version = 84,
+    version = 85,
     autoMigrations = [
         AutoMigration(from = 64, to = 65),
         AutoMigration(from = 65, to = 66),
@@ -48,6 +49,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun userConsumedPromptDao(): UserConsumedPromptDao
     abstract fun displayedNotificationDao(): DisplayedNotificationDao
     abstract fun pendingQualifiedPlayDao(): PendingQualifiedPlayDao
+    abstract fun suppressedArtifactDao(): SuppressedArtifactDao
 
     /**
      * Clears transient session, feed, and cache tables during logout,
@@ -66,6 +68,7 @@ abstract class AppDatabase : RoomDatabase() {
             db.execSQL("DELETE FROM current_user_profile")
             db.execSQL("DELETE FROM reported_artifacts")
             db.execSQL("DELETE FROM ignored_users")
+            db.execSQL("DELETE FROM suppressed_artifacts")
         }
     }
 }

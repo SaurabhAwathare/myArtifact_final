@@ -53,6 +53,7 @@ class InteractionSyncWorker @AssistedInject constructor(
     private val firestoreEngagementRepository: FirestoreEngagementRepository,
     private val commentRepository: com.saurabh.artifact.repository.CommentRepository,
     private val userRepository: UserRepository,
+    private val artifactEngagementRepository: com.saurabh.artifact.repository.ArtifactEngagementRepository,
     private val startupCoordinator: StartupCoordinator,
     private val errorClassifier: InteractionErrorClassifier,
     private val authRepository: Lazy<AuthRepository>,
@@ -473,7 +474,8 @@ class InteractionSyncWorker @AssistedInject constructor(
                type == InteractionType.REACTION || 
                type == InteractionType.FOLLOW ||
                type == InteractionType.ARTIFACT_COUNT ||
-               type == InteractionType.IGNORE
+               type == InteractionType.IGNORE ||
+               type == InteractionType.NOT_FOR_ME
     }
 
     /**
@@ -483,6 +485,13 @@ class InteractionSyncWorker @AssistedInject constructor(
     private suspend fun processInteraction(interaction: PendingInteractionEntity, userId: String): KResult<Unit> {
         return try {
             val result = when (interaction.interactionType) {
+                InteractionType.NOT_FOR_ME -> {
+                    if (interaction.action == InteractionAction.ADD) {
+                        artifactEngagementRepository.syncSuppressionToFirestore(userId, interaction.artifactId)
+                    } else {
+                        artifactEngagementRepository.syncSuppressionRemovalFromFirestore(userId, interaction.artifactId)
+                    }
+                }
                 InteractionType.REACTION -> {
                     if (interaction.action == InteractionAction.ADD) {
                         val type = interaction.metadata?.let { ReactionType.fromId(it) } ?: ReactionType.I_HEAR_YOU

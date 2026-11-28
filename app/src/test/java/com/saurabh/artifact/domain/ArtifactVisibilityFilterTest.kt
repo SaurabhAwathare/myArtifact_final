@@ -16,6 +16,7 @@ import com.saurabh.artifact.data.local.InteractionType
 import com.saurabh.artifact.data.local.PendingInteractionDao
 import com.saurabh.artifact.data.local.PendingInteractionEntity
 import com.saurabh.artifact.data.local.ReportedArtifactDao
+import com.saurabh.artifact.data.local.SuppressedArtifactDao
 import androidx.room.withTransaction
 import dagger.Lazy
 import io.mockk.*
@@ -30,6 +31,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -40,6 +42,7 @@ import org.robolectric.RobolectricTestRunner
 class ArtifactVisibilityFilterTest {
 
     private val reportedArtifactDao = mockk<ReportedArtifactDao>(relaxed = true)
+    private val suppressedArtifactDao = mockk<SuppressedArtifactDao>(relaxed = true)
     private val ignoredUserDao = mockk<IgnoredUserDao>(relaxed = true)
     private val pendingInteractionDao = mockk<PendingInteractionDao>(relaxed = true)
     private val appDatabase = mockk<AppDatabase>(relaxed = true)
@@ -59,7 +62,8 @@ class ArtifactVisibilityFilterTest {
             ignoredUserDao = Lazy { ignoredUserDao },
             firestore = firestore,
             pendingInteractionDao = Lazy { pendingInteractionDao },
-            appDatabase = Lazy { appDatabase }
+            appDatabase = Lazy { appDatabase },
+            suppressedArtifactDao = Lazy { suppressedArtifactDao }
         )
     }
 
@@ -69,25 +73,41 @@ class ArtifactVisibilityFilterTest {
     }
 
     @Test
-    fun `getSuppressedIdsSnapshot should return set of IDs from DAO`() = runBlocking {
+    fun `getSuppressedIdsSnapshot should return combined set of reported and suppressed IDs from DAOs`() = runBlocking {
         val userId = "user1"
-        val reportedIds = listOf("art1", "art2")
+        val reportedIds = listOf("rep1", "rep2")
+        val suppressedIds = listOf("not_me1", "rep2") // overlap rep2
         coEvery { reportedArtifactDao.getReportedArtifactIds(userId) } returns reportedIds
+        coEvery { suppressedArtifactDao.getSuppressedArtifactIds(userId) } returns suppressedIds
 
         val result = filter.getSuppressedIdsSnapshot(userId)
 
-        assertEquals(setOf("art1", "art2"), result)
+        assertEquals(setOf("rep1", "rep2", "not_me1"), result)
     }
 
     @Test
-    fun `observeSuppressedIds should emit set of IDs from DAO flow`() = runBlocking {
+    fun `observeSuppressedIds should emit combined set of reported and suppressed IDs from DAO flows`() = runBlocking {
         val userId = "user1"
-        val reportedIds = listOf("art1", "art2")
+        val reportedIds = listOf("rep1", "rep2")
+        val suppressedIds = listOf("not_me1")
         every { reportedArtifactDao.observeReportedArtifactIds(userId) } returns flowOf(reportedIds)
+        every { suppressedArtifactDao.observeSuppressedArtifactIds(userId) } returns flowOf(suppressedIds)
 
         val result = filter.observeSuppressedIds(userId).first()
 
-        assertEquals(setOf("art1", "art2"), result)
+        assertEquals(setOf("rep1", "rep2", "not_me1"), result)
+    }
+
+    @Test
+    fun `hasLocalSuppressionRecords should return true if reported or suppressed artifacts exist for user`() = runBlocking {
+        val userId = "user1"
+        coEvery { reportedArtifactDao.getReportedArtifactIds(userId) } returns emptyList()
+        coEvery { suppressedArtifactDao.getSuppressedArtifactIds(userId) } returns listOf("supp1")
+
+        assertTrue(filter.hasLocalSuppressionRecords(userId))
+
+        coEvery { suppressedArtifactDao.getSuppressedArtifactIds(userId) } returns emptyList()
+        assertFalse(filter.hasLocalSuppressionRecords(userId))
     }
 
     @Test

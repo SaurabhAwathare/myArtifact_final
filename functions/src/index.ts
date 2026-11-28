@@ -14,6 +14,7 @@ import {
   transferActiveSessionHandler,
   assertActiveSession,
 } from "./session";
+import { assertAppCheck } from "./util/appCheck";
 import { resolveStorageBucket } from "./util/storage";
 import { processNotificationDelivery, recoverExpiredNotificationLeases } from "./notification_delivery";
 import { resolveAvatarConfiguration } from "./util/validation/avatar";
@@ -763,8 +764,9 @@ export async function processFollowTx(
  * Callable Cloud Function: processFollow
  * Authoritatively handles SMGA follow requests from authenticated clients.
  */
-export const processFollow = functions.https.onCall(
+export const processFollow = functions.runWith({ enforceAppCheck: true }).https.onCall(
   async (data: any, context: functions.https.CallableContext): Promise<ProcessFollowResult> => {
+    assertAppCheck(context);
     if (!context.auth) {
       throw new functions.https.HttpsError("unauthenticated", "Authentication required.");
     }
@@ -1605,8 +1607,10 @@ export const onArtifactWritten = functions.firestore
 
 /**
  * Hardened for idempotency and scalability with increased timeout and memory.
+ * Preserves production region us-east1 and enforces transactional initialization.
  */
 export const onUserDeleted = functions
+  .region("us-east1")
   .runWith({
     timeoutSeconds: 540,
     memory: "1GB",
@@ -1621,22 +1625,31 @@ export const onUserDeleted = functions
 
     logger.info(`[DELETE USER] START | UID=${uid}`);
 
-    // Fast-path: Check if deletion already completed on a prior retry / duplicate delivery
     const tombstoneRef = db.collection("deleted_users").doc(uid);
-    const tombstoneDoc = await tombstoneRef.get();
-    if (tombstoneDoc.exists && tombstoneDoc.data()?.state === "DELETED") {
+    const settingsRef = db.doc(`users/${uid}/private/settings`);
+
+    // Transactional initialization guard: Read deleted_users/{uid} inside Firestore transaction
+    const isAlreadyDeleted = await db.runTransaction(async (transaction) => {
+      const tombstoneDoc = await transaction.get(tombstoneRef);
+      if (tombstoneDoc.exists && tombstoneDoc.data()?.state === "DELETED") {
+        return true;
+      }
+      transaction.set(tombstoneRef, {
+        state: "PENDING",
+        startedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+      transaction.set(settingsRef, {
+        activeSessionId: FieldValue.delete(),
+      }, { merge: true });
+      return false;
+    });
+
+    if (isAlreadyDeleted) {
       logger.info(`[DELETE USER] ALREADY_COMPLETED | UID=${uid} | Skipping redundant cleanup.`);
       return null;
     }
 
-    // Set PENDING state immediately to prevent concurrent session, publishing, or comment operations during cleanup
-    if (typeof tombstoneRef?.set === "function") {
-      await tombstoneRef.set({
-        state: "PENDING",
-        startedAt: FieldValue.serverTimestamp(),
-      }, { merge: true });
-      logger.info(`[DELETE USER] Tombstone set to PENDING | UID=${uid}`);
-    }
+    logger.info(`[DELETE USER] Tombstone set to PENDING & activeSessionId cleared | UID=${uid}`);
 
     try {
       // 0. Storage Cleanup: Backups (Authoritative prefix purge)
@@ -2208,9 +2221,219 @@ async function aggregateSafetyConcerns(db: admin.firestore.Firestore, artifactId
 }
 
 /**
+ * Shared transaction-based report creation handler.
+ * Enforces the logical creation guard `report_op_${reportId}_CREATE` atomically across
+ * legacy onReportCreated, replacement onReportWrite, and retries.
+ */
+async function processReportCreation(
+  db: admin.firestore.Firestore,
+  reportId: string,
+  data: any,
+  eventId?: string
+): Promise<null> {
+  const artifactId = data.artifactId;
+  const reporterId = data.reporterId;
+
+  if (!artifactId || !reporterId) {
+    logger.error("[MODERATION] Report missing required fields", { reportId });
+    return null;
+  }
+
+  const creationKey = `report_op_${reportId}_CREATE`;
+  const creationRef = db.collection("idempotency_keys").doc(creationKey);
+  const eventRef = eventId
+    ? db.collection("idempotency_keys").doc(`report_v2_${eventId}`)
+    : null;
+
+  const artifactRef = db.collection("artifacts").doc(artifactId);
+  const markerRef = db
+    .collection("users")
+    .doc(reporterId)
+    .collection("private")
+    .doc("reports")
+    .collection("artifacts")
+    .doc(artifactId);
+  const alertRef = data.reason === "CHILD_SAFETY"
+    ? db.collection("admin_alerts").doc(`report_${reportId}`)
+    : null;
+
+  return await db.runTransaction(async (transaction) => {
+    // 1. Transactional Idempotency Check (Logical creation guard & event key)
+    const creationDoc = await transaction.get(creationRef);
+    if (creationDoc.exists && creationDoc.data()?.status === "SUCCESS") {
+      logger.info(
+        `[MODERATION] Creation already processed for report | ReportID=${reportId}`
+      );
+      return null;
+    }
+
+    if (eventRef) {
+      const eventDoc = await transaction.get(eventRef);
+      if (eventDoc.exists && eventDoc.data()?.status === "SUCCESS") {
+        logger.info(
+          `[MODERATION] Event ${eventId} already processed | ReportID=${reportId}`
+        );
+        return null;
+      }
+    }
+
+    // 2. Read Current Artifact State
+    const artifactDoc = await transaction.get(artifactRef);
+    if (!artifactDoc.exists) {
+      logger.warn(`[MODERATION] Artifact missing | ArtifactID=${artifactId}`);
+      const timestamp = FieldValue.serverTimestamp();
+      transaction.set(creationRef, {
+        status: "SUCCESS",
+        reason: "ARTIFACT_NOT_FOUND",
+        createdAt: timestamp,
+      });
+      if (eventRef) {
+        transaction.set(eventRef, {
+          status: "SUCCESS",
+          reason: "ARTIFACT_NOT_FOUND",
+          createdAt: timestamp,
+        });
+      }
+      return null;
+    }
+
+    // 2.5 Read Admin Alert Doc upfront (MUST occur before any transaction writes)
+    const alertDoc = alertRef ? await transaction.get(alertRef) : null;
+
+    const artifactData = artifactDoc.data()!;
+    const currentReportCount = artifactData.reportCount || 0;
+    const newReportCount = currentReportCount + 1;
+
+    // 3. Prepare Metadata Updates
+    const updates: any = {
+      reportCount: newReportCount,
+      lastUpdated: FieldValue.serverTimestamp(),
+    };
+
+    const newReportedAt = data.createdAt || FieldValue.serverTimestamp();
+    const currentLastReportedAt = artifactData.lastReportedAt;
+
+    const isNewer =
+      !currentLastReportedAt ||
+      (newReportedAt instanceof admin.firestore.Timestamp &&
+        currentLastReportedAt instanceof admin.firestore.Timestamp &&
+        newReportedAt.toMillis() > currentLastReportedAt.toMillis());
+
+    if (isNewer) {
+      updates.lastReportedAt = newReportedAt;
+    }
+
+    if (data.reason === "CHILD_SAFETY") {
+      updates.recommendationState =
+        ModerationConfig.RecommendationState.SUPPRESSED;
+      logger.info(
+        `[MODERATION] CHILD_SAFETY priority suppression | ArtifactID=${artifactId}`
+      );
+    } else if (
+      newReportCount >= ModerationConfig.REPORT_SUPPRESSION_THRESHOLD
+    ) {
+      if (
+        artifactData.recommendationState !==
+        ModerationConfig.RecommendationState.SUPPRESSED
+      ) {
+        updates.recommendationState =
+          ModerationConfig.RecommendationState.SUPPRESSED;
+        logger.info(
+          `[MODERATION] Threshold suppression | ArtifactID=${artifactId} | Count=${newReportCount}`
+        );
+      }
+    }
+
+    // Commit Artifact Update
+    transaction.update(artifactRef, updates);
+
+    // 4. Marker Lifecycle Management
+    transaction.set(markerRef, {
+      artifactId: artifactId,
+      reportedAt: data.createdAt || FieldValue.serverTimestamp(),
+      reason: data.reason,
+    });
+
+    // 5. Moderation Queue Synchronization (Atomic)
+    const queueRef = db.collection("moderation_queue").doc(artifactId);
+    transaction.set(
+      queueRef,
+      {
+        artifactId: artifactId,
+        reportCount: newReportCount,
+        status: ModerationConfig.ModerationStatus.PENDING_REVIEW,
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    // 6. Atomic Critical Admin Alert Creation (CHILD_SAFETY)
+    if (alertRef && (!alertDoc || !alertDoc.exists)) {
+      transaction.set(alertRef, {
+        alertId: `report_${reportId}`,
+        reportId: reportId,
+        artifactId: artifactId,
+        reason: "CHILD_SAFETY",
+        severity: "CRITICAL",
+        createdAt: FieldValue.serverTimestamp(),
+        dispatchState: "PENDING",
+        dispatchAttempts: 0,
+        lastAttemptAt: null,
+        acknowledged: false,
+        acknowledgedBy: null,
+        acknowledgedAt: null,
+      });
+      logger.info(
+        `[MODERATION] Atomic admin alert created | ReportID=${reportId}`
+      );
+    }
+
+    // 7. Finalize Idempotency Keys (both logical creation guard & event key)
+    const timestamp = FieldValue.serverTimestamp();
+    transaction.set(creationRef, {
+      status: "SUCCESS",
+      reportId: reportId,
+      artifactId: artifactId,
+      delta: 1,
+      createdAt: timestamp,
+    });
+
+    if (eventRef) {
+      transaction.set(eventRef, {
+        status: "SUCCESS",
+        reportId: reportId,
+        artifactId: artifactId,
+        delta: 1,
+        createdAt: timestamp,
+      });
+    }
+
+    logger.info(
+      `[MODERATION] Creation Aggregation Success | ArtifactID=${artifactId} | NewCount=${newReportCount}`
+    );
+    return null;
+  });
+}
+
+/**
+ * Legacy creation trigger for reports/{reportId}.
+ * Participates in the shared logical creation guard report_op_${reportId}_CREATE.
+ */
+export const onReportCreated = functions.firestore
+  .document("reports/{reportId}")
+  .onCreate(async (snapshot, context) => {
+    const reportId = context.params.reportId;
+    const eventId = context.eventId;
+    const db = admin.firestore();
+    const data = snapshot.data();
+
+    if (!data) return null;
+    return await processReportCreation(db, reportId, data, eventId);
+  });
+
+/**
  * Triggered on any write to a report.
- * Ensures the reporter's private suppression marker and artifact aggregates are consistent.
- * Optimized with incremental counters and transactional idempotency to eliminate O(N^2) reads.
+ * Uses processReportCreation for creation events, and handles update/delete events atomically.
  */
 export const onReportWrite = functions.firestore
   .document("reports/{reportId}")
@@ -2219,40 +2442,50 @@ export const onReportWrite = functions.firestore
     const eventId = context.eventId;
     const db = admin.firestore();
 
-    // Deterministic key for idempotency (v2 compatible)
-    const idempotencyKey = `report_v2_${eventId}`;
-    const idempotencyRef = db.collection("idempotency_keys").doc(idempotencyKey);
+    const beforeData = change.before && change.before.exists ? change.before.data() : null;
+    const afterData = change.after && change.after.exists ? change.after.data() : null;
 
-    const beforeData = change.before.data();
-    const afterData = change.after.data();
+    if (!beforeData && afterData) {
+      // Creation Event: Handled via shared processReportCreation
+      return await processReportCreation(db, reportId, afterData, eventId);
+    }
+
     const data = afterData || beforeData;
-
     if (!data) return null;
 
     const artifactId = data.artifactId;
     const reporterId = data.reporterId;
 
     if (!artifactId || !reporterId) {
-      logger.error("[MODERATION] Report missing required fields", {reportId});
+      logger.error("[MODERATION] Report missing required fields", { reportId });
       return null;
     }
 
+    const idempotencyKey = `report_v2_${eventId}`;
+    const idempotencyRef = db.collection("idempotency_keys").doc(idempotencyKey);
+
     const artifactRef = db.collection("artifacts").doc(artifactId);
-    const markerRef = db.collection("users").doc(reporterId)
-      .collection("private").doc("reports")
-      .collection("artifacts").doc(artifactId);
+    const markerRef = db
+      .collection("users")
+      .doc(reporterId)
+      .collection("private")
+      .doc("reports")
+      .collection("artifacts")
+      .doc(artifactId);
+    const alertRef = (afterData && afterData.reason === "CHILD_SAFETY")
+      ? db.collection("admin_alerts").doc(`report_${reportId}`)
+      : null;
 
     return await db.runTransaction(async (transaction) => {
-      // 1. Transactional Idempotency Check
+      // 1. Transactional Idempotency Check for UPDATE / DELETE
       const idempotencyDoc = await transaction.get(idempotencyRef);
       if (idempotencyDoc.exists && idempotencyDoc.data()?.status === "SUCCESS") {
         logger.info(`[MODERATION] Already processed event ${eventId} | ReportId=${reportId}`);
         return null;
       }
 
-      // 2. State Determination
-      // CREATE: +1, DELETE: -1, UPDATE: 0
-      const delta = (!beforeData && afterData) ? 1 : (beforeData && !afterData) ? -1 : 0;
+      // 2. State Determination (UPDATE: 0, DELETE: -1)
+      const delta = (beforeData && !afterData) ? -1 : 0;
 
       // 3. Read Current Artifact State
       const artifactDoc = await transaction.get(artifactRef);
@@ -2265,6 +2498,9 @@ export const onReportWrite = functions.firestore
         });
         return null;
       }
+
+      // 3.5 Read Admin Alert Doc upfront (MUST occur before any transaction writes)
+      const alertDoc = alertRef ? await transaction.get(alertRef) : null;
 
       const artifactData = artifactDoc.data()!;
       const currentReportCount = artifactData.reportCount || 0;
@@ -2281,7 +2517,6 @@ export const onReportWrite = functions.firestore
         const newReportedAt = afterData.createdAt || FieldValue.serverTimestamp();
         const currentLastReportedAt = artifactData.lastReportedAt;
 
-        // Note: Firestore Timestamp comparison
         const isNewer = !currentLastReportedAt || (
           newReportedAt instanceof admin.firestore.Timestamp &&
           currentLastReportedAt instanceof admin.firestore.Timestamp &&
@@ -2297,7 +2532,6 @@ export const onReportWrite = functions.firestore
           updates.recommendationState = ModerationConfig.RecommendationState.SUPPRESSED;
           logger.info(`[MODERATION] CHILD_SAFETY priority suppression | ArtifactID=${artifactId}`);
         } else if (newReportCount >= ModerationConfig.REPORT_SUPPRESSION_THRESHOLD) {
-          // Threshold triggered suppression
           if (artifactData.recommendationState !== ModerationConfig.RecommendationState.SUPPRESSED) {
             updates.recommendationState = ModerationConfig.RecommendationState.SUPPRESSED;
             logger.info(`[MODERATION] Threshold suppression | ArtifactID=${artifactId} | Count=${newReportCount}`);
@@ -2331,26 +2565,22 @@ export const onReportWrite = functions.firestore
       }
 
       // 7.5. Atomic Critical Admin Alert Creation (CHILD_SAFETY)
-      if (afterData && afterData.reason === "CHILD_SAFETY") {
-        const alertRef = db.collection("admin_alerts").doc(`report_${reportId}`);
-        const alertDoc = await transaction.get(alertRef);
-        if (!alertDoc.exists) {
-          transaction.set(alertRef, {
-            alertId: `report_${reportId}`,
-            reportId: reportId,
-            artifactId: artifactId,
-            reason: "CHILD_SAFETY",
-            severity: "CRITICAL",
-            createdAt: FieldValue.serverTimestamp(),
-            dispatchState: "PENDING",
-            dispatchAttempts: 0,
-            lastAttemptAt: null,
-            acknowledged: false,
-            acknowledgedBy: null,
-            acknowledgedAt: null,
-          });
-          logger.info(`[MODERATION] Atomic admin alert created | ReportID=${reportId}`);
-        }
+      if (alertRef && (!alertDoc || !alertDoc.exists)) {
+        transaction.set(alertRef, {
+          alertId: `report_${reportId}`,
+          reportId: reportId,
+          artifactId: artifactId,
+          reason: "CHILD_SAFETY",
+          severity: "CRITICAL",
+          createdAt: FieldValue.serverTimestamp(),
+          dispatchState: "PENDING",
+          dispatchAttempts: 0,
+          lastAttemptAt: null,
+          acknowledged: false,
+          acknowledgedBy: null,
+          acknowledgedAt: null,
+        });
+        logger.info(`[MODERATION] Atomic admin alert created | ReportID=${reportId}`);
       }
 
       // 8. Finalize Idempotency
@@ -3081,7 +3311,8 @@ export const sweepExpiredNotificationLeases = functions.pubsub
  * Allows an authorized Admin to retrieve the Creator's email and a temporary audio link
  * for an artifact that is under Legal Hold and confirmed as a Child Safety violation.
  */
-export const revealModerationEvidence = functions.https.onCall(async (data: any, context: functions.https.CallableContext) => {
+export const revealModerationEvidence = functions.runWith({ enforceAppCheck: true }).https.onCall(async (data: any, context: functions.https.CallableContext) => {
+  assertAppCheck(context);
   // 1. Authentication & Admin Authorization
   if (!context.auth) {
     throw new functions.https.HttpsError("unauthenticated", "Authentication required.");
@@ -3284,7 +3515,8 @@ export const aggregateCommunityAtmosphere = functions.pubsub
  * Authoritatively heals the moderation counts for an artifact by re-scanning the reports collection.
  * Use this to recover from race conditions or logic errors in the incremental counter.
  */
-export const healArtifactModeration = functions.https.onCall(async (data: any, context: functions.https.CallableContext) => {
+export const healArtifactModeration = functions.runWith({ enforceAppCheck: true }).https.onCall(async (data: any, context: functions.https.CallableContext) => {
+  assertAppCheck(context);
   if (!context.auth) {
     throw new functions.https.HttpsError("unauthenticated", "Authentication required.");
   }
@@ -3381,7 +3613,8 @@ export async function checkPublishingEnabled(db: admin.firestore.Firestore): Pro
  * Authoritatively reserves an Episode Number for a draft prior to microphone recording.
  * Uses the exact same reservation document structure and sequence counter as preparePublish.
  */
-export const reserveEpisode = functions.https.onCall(async (data, context) => {
+export const reserveEpisode = functions.runWith({ enforceAppCheck: true }).https.onCall(async (data, context) => {
+  assertAppCheck(context);
   await assertActiveSession(context);
   const uid = context.auth!.uid;
 
@@ -3418,6 +3651,24 @@ export const reserveEpisode = functions.https.onCall(async (data, context) => {
         );
       }
 
+      // Transaction-level Active Session Check: Validate against live settings to block concurrent session transfers
+      const settingsRef = db.doc(`users/${uid}/private/settings`);
+      const settingsSnap = await transaction.get(settingsRef);
+      if (!settingsSnap.exists) {
+        throw new functions.https.HttpsError(
+          "permission-denied",
+          "Active session settings document not found."
+        );
+      }
+      const activeSessionId = settingsSnap.data()?.activeSessionId;
+      const tokenActiveSessionId = context.auth?.token?.activeSessionId || null;
+      if (!activeSessionId || activeSessionId !== tokenActiveSessionId) {
+        throw new functions.https.HttpsError(
+          "permission-denied",
+          "Session revoked or active session mismatch."
+        );
+      }
+
       const reservationRef = db.doc(`users/${uid}/private/published_artifacts/artifacts/${cleanDraftId}`);
       const sequenceRef = db.doc(`users/${uid}/private/sequence`);
 
@@ -3427,9 +3678,31 @@ export const reserveEpisode = functions.https.onCall(async (data, context) => {
       let episodeNumber: number;
 
       if (reservationDocData && typeof reservationDocData.episodeNumber === "number") {
+        if (reservationDocData.status === "PUBLISHED") {
+          throw new functions.https.HttpsError(
+            "failed-precondition",
+            "Publication reservation is already published."
+          );
+        }
         episodeNumber = reservationDocData.episodeNumber;
+        if (tokenActiveSessionId) {
+          transaction.set(reservationRef, {
+            activeSessionId: tokenActiveSessionId,
+            status: "RESERVED",
+            updatedAt: FieldValue.serverTimestamp(),
+          }, { merge: true });
+        }
         logger.info(`[RESERVE_EPISODE] Reservation re-used for draft ${cleanDraftId} under user ${uid}, episode ${episodeNumber}`);
       } else {
+        const activeResQuery = db.collection(`users/${uid}/private/published_artifacts/artifacts`).where("status", "==", "RESERVED");
+        const activeResSnap = await transaction.get(activeResQuery);
+        if (activeResSnap.docs.length >= 50) {
+          throw new functions.https.HttpsError(
+            "resource-exhausted",
+            "Maximum active reservations limit reached (50). Please publish or cancel existing drafts."
+          );
+        }
+
         const sequenceDoc = await transaction.get(sequenceRef);
         const sequenceData = sequenceDoc.exists ? sequenceDoc.data() : null;
         const lastEpisodeNumber = (sequenceData && typeof sequenceData.lastEpisodeNumber === "number") ? sequenceData.lastEpisodeNumber : 0;
@@ -3441,9 +3714,12 @@ export const reserveEpisode = functions.https.onCall(async (data, context) => {
           updatedAt: FieldValue.serverTimestamp(),
         }, { merge: true });
 
-        const reservationData = {
+        const reservationData: any = {
           draftId: cleanDraftId,
+          ownerUid: uid,
           episodeNumber: episodeNumber,
+          activeSessionId: tokenActiveSessionId,
+          status: "RESERVED",
           allocatedAt: FieldValue.serverTimestamp(),
           createdAt: reservationDocData && reservationDocData.createdAt ? reservationDocData.createdAt : FieldValue.serverTimestamp(),
           identityResetVersion: identityResetVersion,
@@ -3534,7 +3810,8 @@ export function computeTranscriptDigest(transcript: string | any[]): string {
  * before audio storage upload to satisfy storage.rules isArtifactOwner() check.
  * Binds approved title, emotions, and metadata digest to prevent post-approval mutation.
  */
-export const preparePublish = functions.https.onCall(async (data, context) => {
+export const preparePublish = functions.runWith({ enforceAppCheck: true }).https.onCall(async (data, context) => {
+  assertAppCheck(context);
   await assertActiveSession(context);
   const uid = context.auth!.uid;
 
@@ -3613,6 +3890,24 @@ export const preparePublish = functions.https.onCall(async (data, context) => {
         );
       }
 
+      // Transaction-level Active Session Check: Validate against live settings to block concurrent session transfers
+      const settingsRef = db.doc(`users/${uid}/private/settings`);
+      const settingsSnap = await transaction.get(settingsRef);
+      if (!settingsSnap.exists) {
+        throw new functions.https.HttpsError(
+          "permission-denied",
+          "Active session settings document not found."
+        );
+      }
+      const activeSessionId = settingsSnap.data()?.activeSessionId;
+      const tokenActiveSessionId = context.auth?.token?.activeSessionId || null;
+      if (!activeSessionId || activeSessionId !== tokenActiveSessionId) {
+        throw new functions.https.HttpsError(
+          "permission-denied",
+          "Session revoked or active session mismatch."
+        );
+      }
+
       const reservationRef = db.doc(`users/${uid}/private/published_artifacts/artifacts/${cleanDraftId}`);
       const sequenceRef = db.doc(`users/${uid}/private/sequence`);
 
@@ -3622,8 +3917,21 @@ export const preparePublish = functions.https.onCall(async (data, context) => {
       let episodeNumber: number;
 
       if (reservationDocData && typeof reservationDocData.episodeNumber === "number") {
+        if (reservationDocData.status === "PUBLISHED") {
+          throw new functions.https.HttpsError(
+            "failed-precondition",
+            "Publication reservation is already published."
+          );
+        }
         episodeNumber = reservationDocData.episodeNumber;
         logger.info(`[PREPARE_PUBLISH] Reservation re-used for draft ${cleanDraftId} under user ${uid}, episode ${episodeNumber}`);
+
+        // Update activeSessionId and status on re-used reservation
+        transaction.set(reservationRef, {
+          activeSessionId: tokenActiveSessionId,
+          status: "RESERVED",
+          updatedAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
 
         // IMMUTABILITY ENFORCEMENT (Defect D3):
         // If reservation already has an approved metadata snapshot, reject any conflicting metadata
@@ -3672,6 +3980,15 @@ export const preparePublish = functions.https.onCall(async (data, context) => {
           }
         }
       } else {
+        const activeResQuery = db.collection(`users/${uid}/private/published_artifacts/artifacts`).where("status", "==", "RESERVED");
+        const activeResSnap = await transaction.get(activeResQuery);
+        if (activeResSnap.docs.length >= 50) {
+          throw new functions.https.HttpsError(
+            "resource-exhausted",
+            "Maximum active reservations limit reached (50). Please publish or cancel existing drafts."
+          );
+        }
+
         const sequenceDoc = await transaction.get(sequenceRef);
         const sequenceData = sequenceDoc.exists ? sequenceDoc.data() : null;
         const lastEpisodeNumber = (sequenceData && typeof sequenceData.lastEpisodeNumber === "number") ? sequenceData.lastEpisodeNumber : 0;
@@ -3685,7 +4002,10 @@ export const preparePublish = functions.https.onCall(async (data, context) => {
 
         const reservationData: any = {
           draftId: cleanDraftId,
+          ownerUid: uid,
           episodeNumber: episodeNumber,
+          activeSessionId: tokenActiveSessionId,
+          status: "RESERVED",
           allocatedAt: FieldValue.serverTimestamp(),
           createdAt: reservationDocData && reservationDocData.createdAt ? reservationDocData.createdAt : FieldValue.serverTimestamp(),
           identityResetVersion: identityResetVersion,
@@ -3724,7 +4044,8 @@ export const preparePublish = functions.https.onCall(async (data, context) => {
  * under /artifacts/{draftId} in an atomic transaction.
  * Includes platform-authoritative userId for ownership authorization.
  */
-export const finalizePublish = functions.https.onCall(async (data, context) => {
+export const finalizePublish = functions.runWith({ enforceAppCheck: true }).https.onCall(async (data, context) => {
+  assertAppCheck(context);
   await assertActiveSession(context);
   const uid = context.auth!.uid;
 
@@ -3926,6 +4247,24 @@ export const finalizePublish = functions.https.onCall(async (data, context) => {
         );
       }
 
+      // Transaction-level Active Session Check: Validate against live settings to block concurrent session transfers
+      const settingsRef = db.doc(`users/${uid}/private/settings`);
+      const settingsSnap = await transaction.get(settingsRef);
+      if (!settingsSnap.exists) {
+        throw new functions.https.HttpsError(
+          "permission-denied",
+          "Active session settings document not found."
+        );
+      }
+      const activeSessionId = settingsSnap.data()?.activeSessionId;
+      const tokenActiveSessionId = context.auth?.token?.activeSessionId || null;
+      if (!activeSessionId || activeSessionId !== tokenActiveSessionId) {
+        throw new functions.https.HttpsError(
+          "permission-denied",
+          "Session revoked or active session mismatch."
+        );
+      }
+
       const reservationDoc = await transaction.get(reservationRef);
       if (!reservationDoc.exists) {
         throw new functions.https.HttpsError("permission-denied", "No publication reservation found for this user.");
@@ -4070,6 +4409,7 @@ export const finalizePublish = functions.https.onCall(async (data, context) => {
         },
         reactionVisibility: reactionVisibility,
         status: "ACTIVE",
+        activeSessionId: reservationData.activeSessionId || context.auth?.token?.activeSessionId || "",
         isPublic: isPublic,
         isDraft: false,
         identityVersion: identityResetVersion,
@@ -4086,6 +4426,13 @@ export const finalizePublish = functions.https.onCall(async (data, context) => {
       };
 
       transaction.set(artifactRef, publicArtifactPayload, { merge: false });
+
+      // Transition reservation status to PUBLISHED
+      transaction.set(reservationRef, {
+        status: "PUBLISHED",
+        publishedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
 
       logger.info(`[FINALIZE_PUBLISH] Artifact ${cleanDraftId} successfully finalized and published with server-derived audioUrl.`);
       return { status: "SUCCESS", artifactId: cleanDraftId };
@@ -4107,6 +4454,7 @@ export const getPublicResonators = functions
   .runWith({
     timeoutSeconds: 30,
     memory: "256MB",
+    enforceAppCheck: true,
   })
   .https.onCall(async (data: any, context: functions.https.CallableContext) => {
     // 1. Authentication Check
@@ -4114,13 +4462,8 @@ export const getPublicResonators = functions
       throw new functions.https.HttpsError("unauthenticated", "Authentication required.");
     }
 
-    // 2. App Check Enforcement (in production)
-    if (process.env.NODE_ENV === "production" && !context.app) {
-      throw new functions.https.HttpsError(
-        "failed-precondition",
-        "App Check verification failed."
-      );
-    }
+    // 2. App Check Enforcement
+    assertAppCheck(context);
 
     // 3. Input Validation
     const targetPersonaId = data?.targetPersonaId;
@@ -4260,8 +4603,10 @@ export const deleteArtifact = functions
   .runWith({
     timeoutSeconds: 30,
     memory: "256MB",
+    enforceAppCheck: true,
   })
   .https.onCall(async (data: any, context: functions.https.CallableContext) => {
+    assertAppCheck(context);
     await assertActiveSession(context);
     const callerUid = context.auth!.uid;
 
@@ -4369,12 +4714,12 @@ export const deleteArtifact = functions
 /**
  * First Device Claim Callable Function.
  */
-export const claimFirstDevice = functions.https.onCall(claimFirstDeviceHandler);
+export const claimFirstDevice = functions.runWith({ enforceAppCheck: true }).https.onCall(claimFirstDeviceHandler);
 
 /**
  * Explicit Session Transfer Callable Function.
  */
-export const transferActiveSession = functions.https.onCall(transferActiveSessionHandler);
+export const transferActiveSession = functions.runWith({ enforceAppCheck: true }).https.onCall(transferActiveSessionHandler);
 
 /**
  * Authoritatively dispatches critical moderation push notifications to authorized admins.
@@ -4657,8 +5002,9 @@ export const sweepPendingAdminAlerts = functions.pubsub
  * Lists critical admin safety alerts for authorized administrators.
  * Returns minimal privacy-safe metadata, excluding sensitive user or report content.
  */
-export const listAdminAlerts = functions.https.onCall(
+export const listAdminAlerts = functions.runWith({ enforceAppCheck: true }).https.onCall(
   async (data: any, context: functions.https.CallableContext) => {
+    assertAppCheck(context);
     if (!context.auth) {
       throw new functions.https.HttpsError("unauthenticated", "Authentication required.");
     }
@@ -4711,8 +5057,9 @@ export const listAdminAlerts = functions.https.onCall(
  * Performs atomic transaction updating admin_alerts and logging to moderation_audit_logs.
  * Idempotent request handling preserves original acknowledgement identity & timestamp.
  */
-export const acknowledgeAdminAlert = functions.https.onCall(
+export const acknowledgeAdminAlert = functions.runWith({ enforceAppCheck: true }).https.onCall(
   async (data: any, context: functions.https.CallableContext) => {
+    assertAppCheck(context);
     if (!context.auth) {
       throw new functions.https.HttpsError("unauthenticated", "Authentication required.");
     }

@@ -20,6 +20,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -336,7 +337,7 @@ class FeedRepositoryTest {
         mockkStatic("kotlinx.coroutines.tasks.TasksKt")
         coEvery { task.await() } throws RuntimeException("Firestore error")
 
-        val cachedList = (1..10).map { Artifact(id = "cached_$it", audioUrl = "http://a.mp3") }
+        val cachedList = (1..10).map { Artifact(id = "cached_$it", audioUrl = "http://a.mp3", isPublic = true, status = ArtifactStatus.ACTIVE) }
         coEvery { artifactRepository.getRecentCachedArtifacts(userId, null, 50) } returns cachedList
         coEvery { recommendationService.rank(cachedList, userId) } returns cachedList
 
@@ -401,6 +402,80 @@ class FeedRepositoryTest {
 
         val result = repository.getDiscoveryCandidates(userId, limit = 5, lastVisible = null)
         assertTrue(result.isFailure)
+
+        unmockkStatic("kotlinx.coroutines.tasks.TasksKt")
+    }
+
+    @Test
+    fun `getDiscoveryCandidates filters pre-buffered candidates when popped if suppression is added`() = runTest {
+        val docs = (1..10).map { createMockDoc("doc_$it") }
+        val snapshot = createMockSnapshot(docs)
+        val lastDoc10 = docs.last()
+
+        val collectionRef = mockk<CollectionReference>(relaxed = true)
+        val query = mockk<Query>(relaxed = true)
+        val task = mockk<Task<QuerySnapshot>>(relaxed = true)
+
+        every { firestore.collection("artifacts") } returns collectionRef
+        every { collectionRef.whereEqualTo("isPublic", true) } returns query
+        every { query.whereEqualTo("status", ArtifactStatus.ACTIVE.name) } returns query
+        every { query.orderBy("createdAt", Query.Direction.DESCENDING) } returns query
+        every { query.limit(50) } returns query
+        every { query.get() } returns task
+
+        mockkStatic("kotlinx.coroutines.tasks.TasksKt")
+        coEvery { task.await() } returns snapshot
+        coEvery { recommendationService.rank(any(), any()) } answers {
+            @Suppress("UNCHECKED_CAST")
+            it.invocation.args[0] as List<Artifact>
+        }
+
+        // Fetch page 1: 5 items
+        val res1 = repository.getDiscoveryCandidates(userId, limit = 5, lastVisible = null).getOrThrow()
+        assertEquals(listOf("doc_1", "doc_2", "doc_3", "doc_4", "doc_5"), res1.artifacts.map { it.id })
+
+        // Suppress doc_6 before fetching page 2 from buffer
+        coEvery { visibilityFilter.getSuppressedIdsSnapshot(userId) } returns setOf("doc_6")
+
+        // Fetch page 2: doc_6 was buffered, but must be filtered out when popped!
+        val res2 = repository.getDiscoveryCandidates(userId, limit = 5, lastVisible = lastDoc10).getOrThrow()
+        assertEquals(listOf("doc_7", "doc_8", "doc_9", "doc_10"), res2.artifacts.map { it.id })
+        assertFalse("doc_6 should be filtered out from buffered emission", res2.artifacts.any { it.id == "doc_6" })
+
+        unmockkStatic("kotlinx.coroutines.tasks.TasksKt")
+    }
+
+    @Test
+    fun `getDiscoveryCandidates offline fallback filters cached candidates against suppression state`() = runTest {
+        val collectionRef = mockk<CollectionReference>(relaxed = true)
+        val query = mockk<Query>(relaxed = true)
+        val task = mockk<Task<QuerySnapshot>>(relaxed = true)
+
+        every { firestore.collection("artifacts") } returns collectionRef
+        every { collectionRef.whereEqualTo("isPublic", true) } returns query
+        every { query.whereEqualTo("status", ArtifactStatus.ACTIVE.name) } returns query
+        every { query.orderBy("createdAt", Query.Direction.DESCENDING) } returns query
+        every { query.limit(50) } returns query
+        every { query.get() } returns task
+
+        mockkStatic("kotlinx.coroutines.tasks.TasksKt")
+        coEvery { task.await() } throws RuntimeException("Firestore error")
+
+        val cachedList = listOf(
+            Artifact(id = "cached_1", audioUrl = "http://a.mp3", isPublic = true, status = ArtifactStatus.ACTIVE),
+            Artifact(id = "cached_2", audioUrl = "http://a.mp3", isPublic = true, status = ArtifactStatus.ACTIVE)
+        )
+        coEvery { artifactRepository.getRecentCachedArtifacts(userId, null, 50) } returns cachedList
+        coEvery { visibilityFilter.getSuppressedIdsSnapshot(userId) } returns setOf("cached_1")
+        coEvery { recommendationService.rank(any(), userId) } answers {
+            @Suppress("UNCHECKED_CAST")
+            it.invocation.args[0] as List<Artifact>
+        }
+
+        val result = repository.getDiscoveryCandidates(userId, limit = 5, lastVisible = null).getOrThrow()
+        assertEquals(1, result.artifacts.size)
+        assertEquals("cached_2", result.artifacts[0].id)
+        assertFalse("Offline fallback must exclude suppressed artifact cached_1", result.artifacts.any { it.id == "cached_1" })
 
         unmockkStatic("kotlinx.coroutines.tasks.TasksKt")
     }

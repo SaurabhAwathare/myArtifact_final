@@ -23,8 +23,6 @@ class PersonalizedPagingSource(
 ) : PagingSource<PersonalizedPagingSource.PageKey, Pair<Artifact, Int>>() {
 
     private val emittedIds = mutableSetOf<String>()
-    private var suppressedIdsSnapshot: Set<String>? = null
-    private var ignoredUserIdsSnapshot: Set<String>? = null
 
     data class PageKey(
         val resonatedLast: DocumentSnapshot? = null,
@@ -40,6 +38,15 @@ class PersonalizedPagingSource(
     override suspend fun load(params: LoadParams<PageKey>): LoadResult<PageKey, Pair<Artifact, Int>> {
         return withContext(Dispatchers.IO) {
             try {
+                if (!visibilityFilter.isSuppressionRestorationReady(userId)) {
+                    ArtifactLogger.i(DiagnosticCategory.FEED, "PAGING_SOURCE_LOAD_BLOCKED", mapOf("userId" to userId, "reason" to "Suppression restoration not ready"))
+                    return@withContext LoadResult.Page(
+                        data = emptyList(),
+                        prevKey = null,
+                        nextKey = null
+                    )
+                }
+
                 val key = params.key ?: PageKey(isFirstPage = true)
                 val pageSize = maxOf(1, params.loadSize / 2) // Split between two sources
 
@@ -65,12 +72,8 @@ class PersonalizedPagingSource(
 
                 ArtifactLogger.d(DiagnosticCategory.FEED, "PAGING_SOURCE_LOAD", mapOf("offset" to key.offset))
 
-                val suppressed = suppressedIdsSnapshot ?: visibilityFilter.getSuppressedIdsSnapshot(userId).also {
-                    suppressedIdsSnapshot = it
-                }
-                val ignored = ignoredUserIdsSnapshot ?: visibilityFilter.getIgnoredUserIdsSnapshot(userId).also {
-                    ignoredUserIdsSnapshot = it
-                }
+                val suppressed = visibilityFilter.getSuppressedIdsSnapshot(userId)
+                val ignored = visibilityFilter.getIgnoredUserIdsSnapshot(userId)
 
                 val combined = (resonatedResult.artifacts + discoveryResult.artifacts)
                     .asSequence()

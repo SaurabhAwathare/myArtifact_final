@@ -14,13 +14,20 @@ import com.saurabh.artifact.security.DatabaseEncryptionManager
 import com.saurabh.artifact.domain.PublishingOrchestrator
 import io.mockk.*
 import kotlinx.coroutines.*
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
 import dagger.Lazy
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class CleanupDiscoveryOrderingTest {
+
+    private val testDispatcher = StandardTestDispatcher()
 
     private val context = mockk<Context>(relaxed = true)
     private val workerParams = mockk<WorkerParameters>(relaxed = true)
@@ -40,7 +47,12 @@ class CleanupDiscoveryOrderingTest {
 
     @Before
     fun setup() {
+        mockkStatic(Dispatchers::class)
+        every { Dispatchers.IO } returns testDispatcher
+        Dispatchers.setMain(testDispatcher)
         componentDeferreds.clear()
+        coEvery { draftDao.getAllDrafts() } returns emptyList()
+        coEvery { recordingRepository.recoverInterruptedDrafts() } returns Result.success(emptyList())
         every { localDraftManager.reconcileStorage(any(), any()) } returns Unit
         
         coEvery { startupCoordinator.awaitComponent(any()) } coAnswers {
@@ -52,6 +64,11 @@ class CleanupDiscoveryOrderingTest {
             val component = it.invocation.args[0] as StartupComponent
             getDeferred(component).complete(Unit)
         }
+    }
+
+    @After
+    fun teardown() {
+        Dispatchers.resetMain()
     }
 
     @Test
@@ -66,23 +83,22 @@ class CleanupDiscoveryOrderingTest {
             publishingOrchestrator, startupCoordinator, diagnosticLogger
         )
 
-        // 1. Start CleanupWorker in a separate coroutine
+        // 1. Signal DATABASE readiness so cleanupWorker proceeds to wait for DISCOVERY
+        getDeferred(StartupComponent.DATABASE).complete(Unit)
+
+        // 2. Start CleanupWorker in a separate coroutine
         val cleanupJob = launch {
             cleanupWorker.doWork()
         }
 
-        // 2. Signal DATABASE readiness so cleanupWorker proceeds to wait for DISCOVERY
-        getDeferred(StartupComponent.DATABASE).complete(Unit)
-
         // 3. Run RecoveryWorker (which signals DISCOVERY)
         recoveryWorker.doWork()
         
-        // 4. Now CleanupWorker should finish
+        // 4. Wait for CleanupWorker to complete
         cleanupJob.join()
-        testScheduler.advanceUntilIdle()
         
         // 5. Verify reconciliation happened AFTER discovery
-        verify(exactly = 1) { localDraftManager.reconcileStorage(any()) }
+        verify(exactly = 1) { localDraftManager.reconcileStorage(any(), 7_200_000L) }
     }
 
     @Test

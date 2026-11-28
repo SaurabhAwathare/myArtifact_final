@@ -12,6 +12,7 @@ import com.saurabh.artifact.data.local.InteractionType
 import com.saurabh.artifact.data.local.PendingInteractionDao
 import com.saurabh.artifact.data.local.ReportedArtifactDao
 import com.saurabh.artifact.data.local.ReportedArtifactEntity
+import com.saurabh.artifact.data.local.SuppressedArtifactDao
 import com.saurabh.artifact.diagnostics.ArtifactLogger
 import com.saurabh.artifact.diagnostics.DiagnosticCategory
 import dagger.Lazy
@@ -22,6 +23,7 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -30,7 +32,7 @@ import javax.inject.Singleton
 
 /**
  * A centralized policy engine for determining artifact visibility.
- * This service unifies local suppression rules (like reporting and ignored users) across all discovery surfaces.
+ * This service unifies local suppression rules (like reporting, NOT_FOR_ME, and ignored users) across all discovery surfaces.
  * Acts as the bridge for cross-device report and ignore synchronization.
  */
 @Singleton
@@ -39,20 +41,96 @@ class ArtifactVisibilityFilter @Inject constructor(
     private val ignoredUserDao: Lazy<IgnoredUserDao>,
     private val firestore: FirebaseFirestore,
     private val pendingInteractionDao: Lazy<PendingInteractionDao> = Lazy { error("PendingInteractionDao not provided") },
-    private val appDatabase: Lazy<AppDatabase> = Lazy { error("AppDatabase not provided") }
+    private val appDatabase: Lazy<AppDatabase> = Lazy { error("AppDatabase not provided") },
+    private val suppressedArtifactDao: Lazy<SuppressedArtifactDao> = Lazy { error("SuppressedArtifactDao not provided") },
+    private val userProfileManager: Lazy<com.saurabh.artifact.repository.UserProfileManager> = Lazy { error("UserProfileManager not provided") },
+    private val userSessionManager: Lazy<com.saurabh.artifact.data.local.UserSessionManager> = Lazy { error("UserSessionManager not provided") }
 ) {
     /**
      * Fetches a one-shot snapshot of suppressed artifact IDs from Room.
+     * Combines both reported_artifacts and suppressed_artifacts (NOT_FOR_ME).
      */
     suspend fun getSuppressedIdsSnapshot(userId: String): Set<String> {
-        return reportedArtifactDao.get().getReportedArtifactIds(userId).toSet()
+        val reported = reportedArtifactDao.get().getReportedArtifactIds(userId)
+        val suppressed = suppressedArtifactDao.get().getSuppressedArtifactIds(userId)
+        return (reported + suppressed).toSet()
+    }
+
+    /**
+     * Checks if local suppression records exist for [userId] in Room.
+     */
+    suspend fun hasLocalSuppressionRecords(userId: String): Boolean {
+        if (userId.isEmpty()) return false
+        val reported = reportedArtifactDao.get().getReportedArtifactIds(userId)
+        val suppressed = suppressedArtifactDao.get().getSuppressedArtifactIds(userId)
+        return reported.isNotEmpty() || suppressed.isNotEmpty()
+    }
+
+    /**
+     * Synchronously evaluates if suppression restoration is ready to authorize feed presentation for [userId].
+     */
+    suspend fun isSuppressionRestorationReady(userId: String): Boolean {
+        if (userId.isEmpty()) return false
+
+        if (hasLocalSuppressionRecords(userId)) {
+            return true
+        }
+
+        val manager = runCatching { userProfileManager.get() }.getOrNull()
+        val restorationState = manager?.suppressionRestorationState?.value
+        if (restorationState is com.saurabh.artifact.repository.SuppressionRestorationState.Completed && restorationState.userId == userId) {
+            return true
+        }
+
+        val sessionMgr = runCatching { userSessionManager.get() }.getOrNull()
+        if (sessionMgr?.isSuppressionRestorationCompleted(userId) == true) {
+            return true
+        }
+
+        return false
+    }
+
+    /**
+     * Provides a reactive stream indicating whether suppression restoration is ready for [userId].
+     */
+    fun observeSuppressionRestorationReady(userId: String): Flow<Boolean> {
+        if (userId.isEmpty()) return kotlinx.coroutines.flow.flowOf(false)
+
+        val manager = runCatching { userProfileManager.get() }.getOrNull()
+        val sessionMgr = runCatching { userSessionManager.get() }.getOrNull()
+
+        val restorationStateFlow: Flow<com.saurabh.artifact.repository.SuppressionRestorationState> = manager?.suppressionRestorationState ?: kotlinx.coroutines.flow.flowOf(com.saurabh.artifact.repository.SuppressionRestorationState.Idle)
+        val durableFlow: Flow<Boolean> = sessionMgr?.observeSuppressionRestorationCompleted(userId) ?: kotlinx.coroutines.flow.flowOf(false)
+
+        return combine(
+            observeSuppressedIds(userId),
+            observeIgnoredUserIds(userId),
+            restorationStateFlow,
+            durableFlow
+        ) { suppressed, _, restorationState, isDurable ->
+            if (suppressed.isNotEmpty()) {
+                true
+            } else if (restorationState is com.saurabh.artifact.repository.SuppressionRestorationState.Completed && restorationState.userId == userId) {
+                true
+            } else if (isDurable) {
+                true
+            } else {
+                false
+            }
+        }.map { it }
     }
 
     /**
      * Provides a reactive stream of suppressed artifact IDs from Room.
+     * Combines both reported_artifacts and suppressed_artifacts (NOT_FOR_ME).
      */
     fun observeSuppressedIds(userId: String): Flow<Set<String>> {
-        return reportedArtifactDao.get().observeReportedArtifactIds(userId).map { it.toSet() }
+        return combine(
+            reportedArtifactDao.get().observeReportedArtifactIds(userId),
+            suppressedArtifactDao.get().observeSuppressedArtifactIds(userId)
+        ) { reported, suppressed ->
+            (reported + suppressed).toSet()
+        }
     }
 
     /**

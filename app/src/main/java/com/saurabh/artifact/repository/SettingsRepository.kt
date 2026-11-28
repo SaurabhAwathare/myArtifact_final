@@ -116,7 +116,7 @@ class SettingsRepository @Inject constructor(
                             val snapshot = firestore.collection("users").document(user.uid).get().await()
                             if (snapshot.exists()) break
                         } catch (e: Exception) {
-                            Log.d("SettingsRepository", "Profile not ready yet, retrying... (${e.message})")
+                            try { Log.d("SettingsRepository", "Profile not ready yet, retrying... (${e.message})") } catch (_: Throwable) {}
                         }
                         kotlinx.coroutines.delay(1000)
                         retryCount++
@@ -126,11 +126,13 @@ class SettingsRepository @Inject constructor(
                         .collection("private").document("settings")
                         .addSnapshotListener { snapshot, error ->
                             if (error != null) {
-                                if (error.code == com.google.firebase.firestore.FirebaseFirestoreException.Code.PERMISSION_DENIED) {
-                                    Log.d("SettingsRepository", "Settings access denied. Profile might still be initializing.")
-                                } else {
-                                    Log.e("SettingsRepository", "Error observing settings: ${error.message}")
-                                }
+                                try {
+                                    if (error.code == com.google.firebase.firestore.FirebaseFirestoreException.Code.PERMISSION_DENIED) {
+                                        Log.d("SettingsRepository", "Settings access denied. Profile might still be initializing.")
+                                    } else {
+                                        Log.e("SettingsRepository", "Error observing settings: ${error.message}")
+                                    }
+                                } catch (_: Throwable) {}
                                 return@addSnapshotListener
                             }
                             if (snapshot == null || !snapshot.exists()) return@addSnapshotListener
@@ -209,16 +211,41 @@ class SettingsRepository @Inject constructor(
             // 2. Persist the local deletion-pending UID
             maintenanceRepository.setPendingDeletion(userId)
 
-            // 3. Create the remote PENDING_DELETION tombstone (if not already created)
-            val tombstoneRef = firestore.collection("deleted_users").document(userId)
-            val tombstoneDoc = tombstoneRef.get().await()
-            if (!tombstoneDoc.exists()) {
-                val tombstoneData = mapOf(
-                    "state" to "PENDING_DELETION",
-                    "initiatedAt" to com.google.firebase.firestore.FieldValue.serverTimestamp()
-                )
-                tombstoneRef.set(tombstoneData).await()
+            // 3. Purge private suppression subcollection documents BEFORE tombstone & activeSessionId invalidation
+            // (Security rules require isNotPendingDeletion && isActiveSession for suppression document deletion)
+            val suppressionDocs = firestore.collection("users").document(userId)
+                .collection("private").document("suppressions")
+                .collection("artifacts").get().await()
+
+            if (!suppressionDocs.isEmpty) {
+                val chunks = suppressionDocs.documents.chunked(500)
+                for (chunk in chunks) {
+                    val batch = firestore.batch()
+                    for (doc in chunk) {
+                        batch.delete(doc.reference)
+                    }
+                    batch.commit().await()
+                }
             }
+
+            // 4. Atomically create/verify remote PENDING_DELETION tombstone and invalidate activeSessionId in settings
+            val tombstoneRef = firestore.collection("deleted_users").document(userId)
+            val settingsRef = firestore.collection("users").document(userId).collection("private").document("settings")
+
+            firestore.runTransaction { transaction ->
+                val tombstoneDoc = transaction.get(tombstoneRef)
+                if (!tombstoneDoc.exists()) {
+                    val tombstoneData = mapOf(
+                        "state" to "PENDING_DELETION",
+                        "initiatedAt" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+                    )
+                    transaction.set(tombstoneRef, tombstoneData)
+                }
+                val settingsDoc = transaction.get(settingsRef)
+                if (settingsDoc.exists()) {
+                    transaction.update(settingsRef, "activeSessionId", com.google.firebase.firestore.FieldValue.delete())
+                }
+            }.await()
 
             // 4. Delete the Firebase Authentication account (authoritative point of no return)
             authRepository.deleteCurrentUser().getOrThrow()

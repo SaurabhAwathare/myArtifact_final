@@ -38,30 +38,40 @@ class GetPersonalizedFeedFlowUseCase @Inject constructor(
                 if (userId.isNullOrBlank()) {
                     flowOf(PagingData.empty())
                 } else {
-                    Pager(
-                        config = PagingConfig(
-                            pageSize = 10,
-                            prefetchDistance = 2,
-                            initialLoadSize = 10,
-                            enablePlaceholders = false
-                        ),
-                        pagingSourceFactory = { 
-                            PersonalizedPagingSource(
-                                userId = userId,
-                                feedRepository = feedRepository,
-                                feedRanker = feedRanker,
-                                visibilityFilter = visibilityFilter,
-                                emotion = emotion
-                            ) 
+                    kotlinx.coroutines.flow.combine(
+                        visibilityFilter.observeSuppressionRestorationReady(userId),
+                        visibilityFilter.observeSuppressedIds(userId)
+                    ) { isReady, suppressed -> isReady to suppressed }
+                        .flatMapLatest { (isReady, _) ->
+                            if (!isReady) {
+                                flowOf(PagingData.empty())
+                            } else {
+                                Pager(
+                                    config = PagingConfig(
+                                        pageSize = 10,
+                                        prefetchDistance = 2,
+                                        initialLoadSize = 10,
+                                        enablePlaceholders = false
+                                    ),
+                                    pagingSourceFactory = { 
+                                        PersonalizedPagingSource(
+                                            userId = userId,
+                                            feedRepository = feedRepository,
+                                            feedRanker = feedRanker,
+                                            visibilityFilter = visibilityFilter,
+                                            emotion = emotion
+                                        ) 
+                                    }
+                                ).flow.map { pagingData ->
+                                    pagingData.map { (artifact, index) ->
+                                        FeedDisplayItem.ArtifactItem(
+                                            artifact = resolveIdentity(artifact),
+                                            absoluteIndex = index
+                                        )
+                                    }
+                                }
+                            }
                         }
-                    ).flow.map { pagingData ->
-                        pagingData.map { (artifact, index) ->
-                            FeedDisplayItem.ArtifactItem(
-                                artifact = resolveIdentity(artifact),
-                                absoluteIndex = index
-                            )
-                        }
-                    }
                 }
             }
     }

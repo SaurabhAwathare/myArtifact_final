@@ -10,9 +10,11 @@ let testEnv;
 describe("Admin Privilege Escalation", () => {
   before(async () => {
     testEnv = await initializeTestEnvironment({
-      projectId: "myartifact-admin-unique",
+      projectId: "myartifact-staging",
       firestore: {
         rules: fs.readFileSync("../firestore.rules", "utf8"),
+        host: "127.0.0.1",
+        port: 8080,
       },
     });
   });
@@ -130,7 +132,8 @@ describe("Admin Privilege Escalation", () => {
       const db = context.firestore();
       await db.collection("users").doc(admin_uid).set({ anonymousId: alice_anon_id });
       await db.collection("users").doc(admin_uid).collection("private").doc("settings").set({
-        isAdmin: true
+        isAdmin: true,
+        activeSessionId: "session_" + admin_uid
       });
       await db.collection("artifacts").doc("art1").set({
         userId: "bob",
@@ -139,7 +142,7 @@ describe("Admin Privilege Escalation", () => {
       });
     });
 
-    const alice = testEnv.authenticatedContext(admin_uid);
+    const alice = testEnv.authenticatedContext(admin_uid, { activeSessionId: "session_" + admin_uid });
     await assertSucceeds(
       alice.firestore().collection("artifacts").doc("art1").update({
         adminNote: "Reviewed"
@@ -154,7 +157,8 @@ describe("Admin Privilege Escalation", () => {
       const db = context.firestore();
       await db.collection("users").doc(admin_uid).set({ anonymousId: "alice_anon" });
       await db.collection("users").doc(admin_uid).collection("private").doc("settings").set({
-        isAdmin: true
+        isAdmin: true,
+        activeSessionId: "session_" + admin_uid
       });
       await db.collection("artifacts").doc("art1").collection("comments").doc("com1").set({
         creatorId: "bob",
@@ -168,7 +172,7 @@ describe("Admin Privilege Escalation", () => {
       });
     });
 
-    const alice = testEnv.authenticatedContext(admin_uid);
+    const alice = testEnv.authenticatedContext(admin_uid, { activeSessionId: "session_" + admin_uid });
     await assertSucceeds(
       alice.firestore().collection("artifacts").doc("art1").collection("comments").doc("com1").delete()
     );
@@ -180,7 +184,8 @@ describe("Admin Privilege Escalation", () => {
     await testEnv.withSecurityRulesDisabled(async (context) => {
       const db = context.firestore();
       await db.collection("users").doc(admin_uid).collection("private").doc("settings").set({
-        isAdmin: true
+        isAdmin: true,
+        activeSessionId: "session_" + admin_uid
       });
       await db.collection("admin_alerts").doc("report_art1").set({
         alertId: "report_art1",
@@ -189,7 +194,7 @@ describe("Admin Privilege Escalation", () => {
       });
     });
 
-    const adminUser = testEnv.authenticatedContext(admin_uid);
+    const adminUser = testEnv.authenticatedContext(admin_uid, { activeSessionId: "session_" + admin_uid });
     await assertSucceeds(
       adminUser.firestore().collection("admin_alerts").doc("report_art1").get()
     );
@@ -231,11 +236,12 @@ describe("Admin Privilege Escalation", () => {
     await testEnv.withSecurityRulesDisabled(async (context) => {
       const db = context.firestore();
       await db.collection("users").doc(admin_uid).collection("private").doc("settings").set({
-        isAdmin: true
+        isAdmin: true,
+        activeSessionId: "session_" + admin_uid
       });
     });
 
-    const adminUser = testEnv.authenticatedContext(admin_uid);
+    const adminUser = testEnv.authenticatedContext(admin_uid, { activeSessionId: "session_" + admin_uid });
     await assertFails(
       adminUser.firestore().collection("admin_alerts").doc("report_art1").set({
         alertId: "report_art1",

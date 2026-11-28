@@ -17,6 +17,7 @@ service cloud.firestore {
 
     function isGlobalAdmin() {
       return isAuth() &&
+             isActiveSession(request.auth.uid) &&
              exists(/databases/$(database)/documents/users/$(request.auth.uid)/private/settings) &&
              get(/databases/$(database)/documents/users/$(request.auth.uid)/private/settings).data.get('isAdmin', false) == true;
     }
@@ -158,14 +159,20 @@ service cloud.firestore {
                          request.resource.data.get('accountStatus', 'ACTIVE') == 'ACTIVE' &&
                          !('activeSessionId' in request.resource.data) &&
                          !('lastTransferCorrelationId' in request.resource.data);
-        allow update: if isOwner(uid) &&
-                         isNotPendingDeletion(uid) &&
-                         isActiveSession(uid) &&
-                         !request.resource.data.diff(resource.data).affectedKeys().hasAny([
-                           'isAdmin', 'accountStatus', 'admin',
-                           'activeSessionId', 'activeSessionCreatedAt', 'activeSessionUpdatedAt',
-                           'lastTransferCorrelationId', 'lastTransferTimestamp'
-                         ]);
+        allow update: if isOwner(uid) && (
+                         (isNotPendingDeletion(uid) &&
+                          isActiveSession(uid) &&
+                          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+                            'isAdmin', 'accountStatus', 'admin',
+                            'activeSessionId', 'activeSessionCreatedAt', 'activeSessionUpdatedAt',
+                            'lastTransferCorrelationId', 'lastTransferTimestamp'
+                          ])) ||
+                         ((exists(/databases/$(database)/documents/deleted_users/$(uid)) ||
+                           existsAfter(/databases/$(database)/documents/deleted_users/$(uid))) &&
+                          (!('activeSessionId' in request.resource.data) ||
+                           request.resource.data.activeSessionId == null ||
+                           request.resource.data.activeSessionId == ''))
+                       );
         allow delete: if false;
       }
 
@@ -220,6 +227,23 @@ service cloud.firestore {
       match /private/metadata {
         allow read: if isOwner(uid) && isActiveSession(uid);
         allow write: if isOwner(uid) && isNotPendingDeletion(uid) && isActiveSession(uid);
+      }
+
+      // Private Suppressions (Not for Me)
+      match /private/suppressions/artifacts/{artifactId} {
+        allow read: if isOwner(uid) && isActiveSession(uid);
+
+        allow create, update: if isOwner(uid) &&
+                                 isNotPendingDeletion(uid) &&
+                                 isActiveSession(uid) &&
+                                 request.resource.data.userId == uid &&
+                                 request.resource.data.artifactId == artifactId &&
+                                 request.resource.data.type == 'NOT_FOR_ME' &&
+                                 request.resource.data.suppressedAt is timestamp &&
+                                 request.resource.data.keys().hasOnly(['userId', 'artifactId', 'suppressedAt', 'type']) &&
+                                 request.resource.data.keys().hasAll(['userId', 'artifactId', 'suppressedAt', 'type']);
+
+        allow delete: if isOwner(uid) && isNotPendingDeletion(uid) && isActiveSession(uid);
       }
 
       // Resonance

@@ -5,6 +5,7 @@ import androidx.room.testing.MigrationTestHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -935,6 +936,142 @@ class DatabaseMigrationTest {
                 assertEquals(999L, modernEntity?.playCount)
                 assertEquals(50L, modernEntity?.qualifiedPlayCount)
                 assertEquals(18L, modernEntity?.savedCount)
+            }
+        } finally {
+            roomDb.close()
+        }
+    }
+
+    /**
+     * Migration 84 -> 85: Account-scoped Local Artifact Suppression Persistence.
+     * Verifies that existing Artifact rows survive migration, new table 'suppressed_artifacts'
+     * and its indexes are created, Room schema validation succeeds, and DAO operations enforce
+     * account isolation and deterministic logout cleanup.
+     */
+    @Test
+    @Throws(IOException::class)
+    fun migrate84To85_isolated() {
+        // 1. Create database at Version 84 and populate existing artifact
+        helper.createDatabase(TEST_DB, 84).apply {
+            execSQL(
+                """
+                INSERT INTO artifacts (
+                    id, userId, authorAnonymousId, authorName, authorSigil,
+                    authorSigilSeed, authorSigilColor, authorSigilConfigJson,
+                    audioUrl, createdAt, durationMs, title, description,
+                    emotion, emotions, primaryStyle, emotionTag,
+                    playCount, qualifiedPlayCount, reactionCount, commentCount, savedCount, reportCount, safetyConcernCount,
+                    reporterIds, amplitudeData, transcriptUrl, status, recommendationState,
+                    isDraft, isEncrypted, identityVersion, identityPropagationVersion,
+                    resonanceDepth, humanIntegrityFactor, lastUpdated, episodeNumber
+                ) VALUES (
+                    'art_v84', 'user_v84', 'anon_v84', 'Author 84', 'sigil_84',
+                    'seed_84', '#654321', '{}',
+                    'https://example.com/84.m4a', 1700000005000, 20000, 'Title 84', 'Desc 84',
+                    'JOY', '["JOY"]', NULL, 'Joy',
+                    100, 20, 5, 2, 10, 0, 0,
+                    '[]', '[0.1]', NULL, 'ACTIVE', 'ACTIVE',
+                    0, 0, 1, 1,
+                    0.8, 1.0, 1700000005000, 1
+                )
+                """.trimIndent()
+            )
+            close()
+        }
+
+        // 2. Run migration 84 -> 85 and validate schema
+        val db = helper.runMigrationsAndValidate(TEST_DB, 85, true, DatabaseMigrations.MIGRATION_84_85)
+
+        // 3. Verify existing data survived
+        val legacyCursor = db.query("SELECT * FROM artifacts WHERE id = 'art_v84'")
+        assert(legacyCursor.moveToFirst())
+        assertEquals("art_v84", legacyCursor.getString(legacyCursor.getColumnIndexOrThrow("id")))
+        legacyCursor.close()
+
+        // 4. Verify table 'suppressed_artifacts' and its indexes exist
+        val tableCursor = db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='suppressed_artifacts'")
+        assert(tableCursor.moveToFirst())
+        assertEquals("suppressed_artifacts", tableCursor.getString(0))
+        tableCursor.close()
+
+        val indexUserCursor = db.query("SELECT name FROM sqlite_master WHERE type='index' AND name='index_suppressed_artifacts_userId'")
+        assert(indexUserCursor.moveToFirst())
+        indexUserCursor.close()
+
+        val indexArtifactCursor = db.query("SELECT name FROM sqlite_master WHERE type='index' AND name='index_suppressed_artifacts_artifactId'")
+        assert(indexArtifactCursor.moveToFirst())
+        indexArtifactCursor.close()
+
+        db.close()
+
+        // 5. Open database via Room to test SuppressedArtifactDao operations, Account Isolation, and Logout Cleanup
+        val roomDb = Room.databaseBuilder(
+            InstrumentationRegistry.getInstrumentation().targetContext,
+            AppDatabase::class.java,
+            TEST_DB
+        )
+            .addMigrations(*DatabaseMigrations.ALL_MIGRATIONS)
+            .allowMainThreadQueries()
+            .build()
+
+        try {
+            runBlocking {
+                val dao = roomDb.suppressedArtifactDao()
+
+                // Insert suppressions for User A
+                dao.insert(SuppressedArtifactEntity(userId = "user_A", artifactId = "art_1", suppressedAt = 1000L))
+                dao.insert(SuppressedArtifactEntity(userId = "user_A", artifactId = "art_2", suppressedAt = 2000L))
+
+                // Insert suppressions for User B
+                dao.insert(SuppressedArtifactEntity(userId = "user_B", artifactId = "art_1", suppressedAt = 3000L))
+                dao.insert(SuppressedArtifactEntity(userId = "user_B", artifactId = "art_3", suppressedAt = 4000L))
+
+                // Test isSuppressed with Account Isolation
+                assert(dao.isSuppressed("user_A", "art_1"))
+                assert(dao.isSuppressed("user_A", "art_2"))
+                assert(!dao.isSuppressed("user_A", "art_3"))
+
+                assert(dao.isSuppressed("user_B", "art_1"))
+                assert(dao.isSuppressed("user_B", "art_3"))
+                assert(!dao.isSuppressed("user_B", "art_2"))
+
+                // Test getSuppressedArtifactIds with Account Isolation
+                val userAIds = dao.getSuppressedArtifactIds("user_A")
+                assertEquals(2, userAIds.size)
+                assert(userAIds.contains("art_1"))
+                assert(userAIds.contains("art_2"))
+                assert(!userAIds.contains("art_3"))
+
+                val userBIds = dao.getSuppressedArtifactIds("user_B")
+                assertEquals(2, userBIds.size)
+                assert(userBIds.contains("art_1"))
+                assert(userBIds.contains("art_3"))
+                assert(!userBIds.contains("art_2"))
+
+                // Test observeSuppressedArtifactIds Flow
+                val observedUserA = dao.observeSuppressedArtifactIds("user_A").first()
+                assertEquals(2, observedUserA.size)
+                assert(observedUserA.contains("art_1"))
+                assert(observedUserA.contains("art_2"))
+
+                // Test Repeated Insertion (No duplicates)
+                dao.insert(SuppressedArtifactEntity(userId = "user_A", artifactId = "art_1", suppressedAt = 5000L))
+                val userAIdsAfterReinsert = dao.getSuppressedArtifactIds("user_A")
+                assertEquals(2, userAIdsAfterReinsert.size)
+
+                // Test Specific Record Deletion
+                dao.delete("user_A", "art_1")
+                assert(!dao.isSuppressed("user_A", "art_1"))
+                // User B's suppression for art_1 must remain intact
+                assert(dao.isSuppressed("user_B", "art_1"))
+
+                // Test Logout Cleanup (clearSessionTables removes suppression records)
+                roomDb.clearSessionTables()
+                assert(!dao.isSuppressed("user_A", "art_2"))
+                assert(!dao.isSuppressed("user_B", "art_1"))
+                assert(!dao.isSuppressed("user_B", "art_3"))
+                assertEquals(0, dao.getSuppressedArtifactIds("user_A").size)
+                assertEquals(0, dao.getSuppressedArtifactIds("user_B").size)
             }
         } finally {
             roomDb.close()

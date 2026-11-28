@@ -363,6 +363,28 @@ object DatabaseMigrations {
         }
     }
 
+    /**
+     * Migration 84 -> 85: Account-scoped Local Artifact Suppression Persistence.
+     * Creates 'suppressed_artifacts' table with composite primary key (userId, artifactId)
+     * and 'suppressedAt' timestamp for durable "Not for me" local feed suppression.
+     */
+    val MIGRATION_84_85 = object : Migration(84, 85) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `suppressed_artifacts` (
+                    `userId` TEXT NOT NULL,
+                    `artifactId` TEXT NOT NULL,
+                    `suppressedAt` INTEGER NOT NULL,
+                    PRIMARY KEY(`userId`, `artifactId`)
+                )
+                """.trimIndent()
+            )
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_suppressed_artifacts_userId` ON `suppressed_artifacts` (`userId`)")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_suppressed_artifacts_artifactId` ON `suppressed_artifacts` (`artifactId`)")
+        }
+    }
+
     val ALL_MIGRATIONS = arrayOf<Migration>(
         MIGRATION_60_61,
         MIGRATION_61_62,
@@ -380,6 +402,7 @@ object DatabaseMigrations {
         MIGRATION_80_81,
         MIGRATION_81_82,
         MIGRATION_82_83,
-        MIGRATION_83_84
+        MIGRATION_83_84,
+        MIGRATION_84_85
     )
 }
